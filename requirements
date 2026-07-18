@@ -6,4 +6,3 @@ lxml==6.1.1
 gspread
 google-auth
 requests
-gspread
