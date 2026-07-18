@@ -10,6 +10,10 @@ from datetime import datetime, timedelta, timezone
 # 1. 페이지 설정
 st.set_page_config(page_title="T2 보안검색 환승부 잡지", layout="wide")
 
+# 앱 최초 실행 시 마지막 업데이트 시간 초기화
+if "last_updated" not in st.session_state:
+    st.session_state["last_updated"] = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
+
 # ⭐ [구글 시트 연동 설정]
 SHEET_NAME = "보안검색_데이터_공유" 
 
@@ -62,7 +66,8 @@ def append_file_names(new_names):
     except Exception as e:
         st.sidebar.error(f"⚠ 파일 목록 저장 실패: {e}")
 
-@st.cache_data(ttl=20, show_spinner=False)
+# [수정] 구글 시트 무료 제한을 아끼기 위해 기억 시간을 30분(1800초)으로 연장
+@st.cache_data(ttl=1800, show_spinner=False)
 def load_file_names():
     try:
         spreadsheet = get_spreadsheet()
@@ -76,7 +81,8 @@ def load_file_names():
         st.sidebar.error(f"⚠ 파일 목록 불러오기 실패: {e}")
     return []
 
-@st.cache_data(ttl=20, show_spinner=False)
+# [수정] 구글 시트 무료 제한을 아끼기 위해 기억 시간을 30분(1800초)으로 연장
+@st.cache_data(ttl=1800, show_spinner=False)
 def load_from_sheet(sheet_name):
     try:
         spreadsheet = get_spreadsheet()
@@ -102,13 +108,13 @@ def clear_sheet(sheet_name):
     except Exception as e:
         st.sidebar.error(f"⚠ 데이터 비우기 실패: {e}")
 
-# ⭐ [실시간 게이트 데이터 API 연동 - 날짜 지정 및 JSON 지원]
-@st.cache_data(ttl=600, show_spinner=False)
+# ⭐ [실시간 게이트 데이터 API 연동]
+# [수정] 일일 500회 제한을 아끼기 위해 기억 시간을 30분(1800초)으로 연장
+@st.cache_data(ttl=1800, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
     api_key = st.secrets["api"]["service_key"]
     url = "http://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp"
     
-    # 여기서 searchdtCode를 E에서 S로 변경해야 22시 이후 비행기가 나옵니다!
     req_url = f"{url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2400&passengerOrCargo=P&type=json&numOfRows=1000&pageNo=1"
     
     try:
@@ -127,9 +133,14 @@ def fetch_realtime_gate_info(search_date_str):
                 
             for item in item_data:
                 flight_id = item.get('flightId', '').replace('DAL', 'DL').replace('KAL', 'KE').replace('AAR', 'OZ')
+                
+                # [수정] 시간에 콜론(:) 추가 로직
+                raw_time = str(item.get('estimatedDatetime', '') or item.get('scheduleDatetime', ''))[-4:]
+                formatted_time = f"{raw_time[:2]}:{raw_time[2:]}" if len(raw_time) == 4 else raw_time
+                
                 items.append({
                     '편명': clean_flight_no(flight_id),
-                    '시간': str(item.get('estimatedDatetime', '') or item.get('scheduleDatetime', ''))[-4:], # 간단 시간 처리
+                    '시간': formatted_time,
                     '게이트': item.get('gateNumber') or item.get('fstandPosition', ''),
                     '출발지': item.get('airportCode', '') or item.get('airport', ''),
                     '출구': item.get('exitNumber', '')
@@ -288,8 +299,6 @@ def find_col(df, keywords):
             if key.upper() in clean_col: return col
     return None
 
-
-# [수정 4: 한글(쓰리코드) 자동 변환을 위한 IATA 공항 코드 사전]
 IATA_CITY_MAP = {
     "LIS": "리스본", "HFE": "허페이", "KUH": "쿠시로", "KIX": "오사카",
     "NRT": "나리타", "HKG": "홍콩", "TSN": "톈진", "CTS": "삿포로",
@@ -318,33 +327,24 @@ IATA_CITY_MAP = {
     "CSX": "장사", "KMG": "쿤밍",
 }
 
-# [수정 4: 출발지 픽스] 한글(쓰리코드) 같이 100% 표시되게 강화된 로직
 def format_route(val):
     val = str(val).strip().upper()
-    # 사전에 코드가 있으면 한글명+코드 조합으로 반환
     if val in IATA_CITY_MAP:
         return f"{IATA_CITY_MAP[val]}({val})"
     
-    # 1. 괄호가 있는 경우 분리 시도
     match = re.search(r'^(.*?)\s*\((.*?)\)$', val)
     if match:
         part1 = match.group(1).strip()
         part2 = match.group(2).strip().upper()
-        
-        # 괄호 안이 3자리 영문 코드인 경우
         if re.match(r'^[A-Z]{3}$', part2):
             code = part2
-            # 한글 도시명이 없거나 영문만 있으면 매핑 사전에서 한글명 찾기
             if not part1 or re.match(r'^[a-zA-Z/]+$', part1):
                 city = IATA_CITY_MAP.get(code, part1)
             else:
                 city = part1
             return f"{city}({code})" if city else f"({code})"
             
-    # 2. 슬래시(/)가 있는 경우 앞부분만 취함
     if '/' in val: val = val.split('/')[0].strip()
-    
-    # 3. 3자리 영문 코드만 달랑 있는 경우 (예: "LHR", "KIX")
     val_upper = val.upper()
     if re.match(r'^[A-Z]{3}$', val_upper):
         city = IATA_CITY_MAP.get(val_upper, "")
@@ -354,7 +354,8 @@ def format_route(val):
         
     return val
 
-def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_size):
+# [수정] 20분 경과 확인을 위해 target_date와 now_kst 파라미터 추가
+def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_size, target_date, now_kst):
     display_title = f"{title} ({count:,}명)"
     html = f"<div class='print-col'><h3 style='text-align:center; color:{color}; font-size:16px; margin-top:2px; margin-bottom:5px;'>{display_title}</h3>"
     if df.empty: return html + "<div style='text-align:center; padding:20px; border:1px solid #ddd;'>데이터 없음</div></div>"
@@ -379,15 +380,37 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
         current_h = row['hour_val']
         flt = str(row['편명']).upper()
         row_style_css = ""
+        text_style = ""
         
-        if opt_airline:
-            if flt.startswith("DL"): row_style_css = "background-color: #E3F2FD;" 
-            elif flt.startswith("OZ"): row_style_css = "background-color: #FDF4F7;" 
-        elif opt_peak:
-            if current_h == 16: row_style_css = "background-color: #F4FAFD;" 
-            elif current_h == 17: row_style_css = "background-color: #FFFDF0;" 
-            elif current_h == 18: row_style_css = "background-color: #FFF5F8;" 
-        td_style = f' style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;"'
+        # [수정] 20분 이상 경과한 비행기인지 판별하는 로직 추가
+        is_past_20_mins = False
+        try:
+            time_parts = str(row['시간']).split(':')
+            if len(time_parts) == 2:
+                f_hour = int(time_parts[0])
+                f_min = int(time_parts[1])
+                # 조회 날짜의 해당 비행기 시간 만들기
+                flight_dt = target_date.replace(hour=f_hour, minute=f_min, second=0, microsecond=0)
+                # 현재 시간 기준으로 20분보다 더 전에 도착했다면 True
+                if flight_dt <= now_kst - timedelta(minutes=20):
+                    is_past_20_mins = True
+        except:
+            pass
+            
+        # 20분이 지났다면 취소선 긋고 회색으로 변경
+        if is_past_20_mins:
+            text_style = " text-decoration: line-through; color: #6B7280;"
+            row_style_css = "background-color: #F9FAFB;" # 아주 연한 회색 배경
+        else:
+            if opt_airline:
+                if flt.startswith("DL"): row_style_css = "background-color: #E3F2FD;" 
+                elif flt.startswith("OZ"): row_style_css = "background-color: #FDF4F7;" 
+            elif opt_peak:
+                if current_h == 16: row_style_css = "background-color: #F4FAFD;" 
+                elif current_h == 17: row_style_css = "background-color: #FFFDF0;" 
+                elif current_h == 18: row_style_css = "background-color: #FFF5F8;" 
+                
+        td_style = f' style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}"'
         
         html += f'<tr>'
         html += f'<td{td_style}>{row["시간"]}</td><td{td_style}>{row["편명"]}</td><td{td_style}>{row.get("출발지", "")}</td><td{td_style}>{row["게이트"]}</td><td{td_style}>{row["p_display"]}</td>'
@@ -404,14 +427,21 @@ with st.sidebar:
     st.header("🔗 빠른 사이트 이동")
     st.link_button("✈ 인천공항 도착편 조회", "https://www.airport.kr/ap_ko/872/subview.do", use_container_width=True)
     st.link_button("📧 네이버 메일함 열기", "https://mail.naver.com", use_container_width=True)
-    # [수정 3: 이전 버전으로 이동 버튼 깔끔하게 삭제 완료]
     st.divider()
 
     st.header("🔄 실시간 업데이트")
     if st.button("🔄 업데이트하기", use_container_width=True):
         fetch_realtime_gate_info.clear() 
         st.session_state["toast_msg"] = "게이트 정보를 최신 상태로 업데이트했습니다!"
+        # 업데이트 클릭 시 현재 시간을 저장
+        KST = timezone(timedelta(hours=9))
+        st.session_state["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
         st.rerun()
+        
+    # [수정] 마지막 업데이트 시간 캡션 표시
+    if "last_updated" in st.session_state:
+        st.caption(f"마지막 업데이트: {st.session_state['last_updated']}")
+        
     st.divider()
     
     st.header("📂 승객 데이터 업로드")
@@ -477,6 +507,7 @@ with st.sidebar:
     st.divider()
     date_option = st.radio("📅 표시 날짜 선택", ["오늘", "내일 (+1일)"], index=0)
     
+    # 시간 처리 로직 (now_kst는 아래 메인 로직에서 참조됨)
     KST = timezone(timedelta(hours=9))
     today_date = datetime.now(KST)
     if date_option == "내일 (+1일)": target_date = today_date + timedelta(days=1)
@@ -504,11 +535,9 @@ st.markdown(f"""
 # --- [메인 로직] ---
 p_all = []
 
-# 기존 승객 데이터 설정
 if not saved_pax_df.empty:
     p_all.append(saved_pax_df)
 
-# API를 통해 선택한 날짜 기준 게이트 정보 로드
 df_g = fetch_realtime_gate_info(api_target_date_str)
 
 if not p_all or df_g.empty:
@@ -525,12 +554,8 @@ if not p_all or df_g.empty:
         st.info(f"🔄 {display_date_str}의 실시간 공항 API에서 게이트 데이터를 불러오는 중이거나 데이터가 없습니다.")
 else:
     df_p = pd.concat(p_all).drop_duplicates('편명')
-    
-    # 승객 정보 + 실시간 게이트 정보 매핑 (편명 기준)
     final = pd.merge(df_g, df_p, on='편명', how='inner', suffixes=('_api', '_pax'))
     
-    # [수정 1: 델타항공 등 출발지 누락 데이터 병합(덮어쓰기) 방지 로직 개선]
-    # 빈 문자열을 잡아내어 API에서 가져온 출발지로 메워줍니다.
     if '출발지_pax' in final.columns:
         final['출발지'] = final.apply(
             lambda row: row['출발지_api'] if pd.isna(row['출발지_pax']) or str(row['출발지_pax']).strip() == '' else row['출발지_pax'], 
@@ -539,7 +564,6 @@ else:
     else:
         final['출발지'] = final['출발지_api']
         
-    # 출발지 표기 방식 일괄 고정 적용 ('한글+영어')
     if '출발지' in final.columns:
         final['출발지'] = final['출발지'].apply(format_route)
         final = final[~final['출발지'].astype(str).str.contains('PUS|김해|부산', case=False, na=False)]
@@ -695,8 +719,9 @@ else:
         west_p = final[final['구역'] == '서편']['p_val'].sum()
         east_p = final[final['구역'] == '동편']['p_val'].sum()
         
-        w_html = generate_table_html(final[final['구역'] == '서편'], "⬅ 서편", west_p, "#DC2626", opt_airline, opt_peak, base_font_size)
-        e_html = generate_table_html(final[final['구역'] == '동편'], "➡ 동편", east_p, "#2563EB", opt_airline, opt_peak, base_font_size)
+        # [수정] 테이블 생성 시 취소선 긋기 위한 target_date와 today_date(now_kst)를 넘겨줍니다.
+        w_html = generate_table_html(final[final['구역'] == '서편'], "⬅ 서편", west_p, "#DC2626", opt_airline, opt_peak, base_font_size, target_date, today_date)
+        e_html = generate_table_html(final[final['구역'] == '동편'], "➡ 동편", east_p, "#2563EB", opt_airline, opt_peak, base_font_size, target_date, today_date)
         
         st.markdown(f'<div class="print-row">{e_html}{w_html}</div>', unsafe_allow_html=True)
     else:
