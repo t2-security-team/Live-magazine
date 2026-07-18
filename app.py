@@ -103,59 +103,39 @@ def clear_sheet(sheet_name):
         st.sidebar.error(f"⚠ 데이터 비우기 실패: {e}")
 
 # ⭐ [실시간 게이트 데이터 API 연동 - 날짜 지정 및 JSON 지원]
-@st.cache_data(ttl=600, show_spinner=False) # 기본 10분마다 갱신 (수동 업데이트 지원)
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
     api_key = st.secrets["api"]["service_key"]
     url = "http://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp"
     
-    req_url = f"{url}?serviceKey={api_key}&searchdtCode=E&searchDate={search_date_str}&searchFrom=0000&searchTo=2400&passengerOrCargo=P&type=json&numOfRows=1000&pageNo=1"
+    # 여기서 searchdtCode를 E에서 S로 변경해야 22시 이후 비행기가 나옵니다!
+    req_url = f"{url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2400&passengerOrCargo=P&type=json&numOfRows=1000&pageNo=1"
     
     try:
         response = requests.get(req_url, timeout=15)
-        
         if response.status_code != 200:
-            st.sidebar.error(f"⚠ API 서버 오류 (상태 코드: {response.status_code})")
             return pd.DataFrame()
             
         data = response.json()
         items = []
-        
         if 'response' in data and 'body' in data['response'] and 'items' in data['response']['body']:
             item_data = data['response']['body']['items']
-            
             if isinstance(item_data, dict) and 'item' in item_data:
                 item_data = item_data['item']
             elif not isinstance(item_data, list):
                 item_data = [item_data]
                 
             for item in item_data:
-                flight_id = item.get('flightId', '')
-                gate = item.get('gateNumber') if item.get('gateNumber') else item.get('fstandPosition', '')
-                airport = item.get('airportCode', '') or item.get('airport', '')
-                exit_num = item.get('exitNumber', '')
-                
-                raw_time = str(item.get('estimatedDatetime', '') or item.get('scheduleDatetime', '')).strip()
-                formatted_time = ""
-                if raw_time:
-                    if len(raw_time) >= 12: 
-                        formatted_time = f"{raw_time[8:10]}:{raw_time[10:12]}"
-                    elif len(raw_time) >= 4:
-                        formatted_time = f"{raw_time[-4:-2]}:{raw_time[-2:]}"
-                    else:
-                        formatted_time = raw_time
-
-                if flight_id:
-                    items.append({
-                        '편명': clean_flight_no(flight_id),
-                        '시간': formatted_time,
-                        '게이트': gate,
-                        '출발지': airport,
-                        '출구': exit_num
-                    })
-        
+                flight_id = item.get('flightId', '').replace('DAL', 'DL').replace('KAL', 'KE').replace('AAR', 'OZ')
+                items.append({
+                    '편명': clean_flight_no(flight_id),
+                    '시간': str(item.get('estimatedDatetime', '') or item.get('scheduleDatetime', ''))[-4:], # 간단 시간 처리
+                    '게이트': item.get('gateNumber') or item.get('fstandPosition', ''),
+                    '출발지': item.get('airportCode', '') or item.get('airport', ''),
+                    '출구': item.get('exitNumber', '')
+                })
         return pd.DataFrame(items)
     except Exception as e:
-        st.sidebar.error(f"⚠ 데이터를 불러오는 중 오류가 발생했습니다: {e}")
         return pd.DataFrame()
 
 # 메시지 처리 (토스트 알림용)
@@ -308,33 +288,69 @@ def find_col(df, keywords):
             if key.upper() in clean_col: return col
     return None
 
-def format_route(val, option):
-    if pd.isna(val): return ""
-    val = str(val).strip()
-    val = re.sub(r'\([가-힣\s]+\)', '', val).strip()
-    match = re.search(r'(.*?)\s*\(([A-Za-z0-9]+)\)', val)
+
+# [수정 4: 한글(쓰리코드) 자동 변환을 위한 IATA 공항 코드 사전]
+IATA_CITY_MAP = {
+    "LIS": "리스본", "HFE": "허페이", "KUH": "쿠시로", "KIX": "오사카",
+    "NRT": "나리타", "HKG": "홍콩", "TSN": "톈진", "CTS": "삿포로",
+    "MFM": "마카오", "AKL": "오클랜드", "UKB": "고베", "KOJ": "가고시마",
+    "DLC": "다롄", "LHR": "런던", "BUD": "부다페스트", "CDG": "파리",
+    "PEK": "베이징", "NGO": "나고야", "YNZ": "옌청", "PVG": "상하이/푸둥",
+    "CGQ": "창춘", "KIJ": "니가타", "LAX": "로스앤젤레스", "HND": "하네다",
+    "JFK": "뉴욕", "ATL": "애틀랜타", "DTW": "디트로이트", "SEA": "시애틀",
+    "SFO": "샌프란시스코", "FRA": "프랑크푸르트", "FCO": "로마", "BKK": "방콕",
+    "SGN": "호치민", "HAN": "하노이", "MNL": "마닐라", "CEB": "세부",
+    "SIN": "싱가포르", "SYD": "시드니", "BNE": "브리즈번", "TPE": "타이베이",
+    "CAN": "광저우", "TAO": "칭다오", "FUK": "후쿠오카", "OKA": "오키나와",
+    "MSP": "미니애폴리스", "DFW": "댈러스", "ORD": "시카고", "YVR": "밴쿠버",
+    "YYZ": "토론토", "AMS": "암스테르담", "IST": "이스탄불", "DXB": "두바이",
+    "CJU": "제주", "PUS": "부산", "HNL": "호놀룰루", "BOS": "보스턴",
+    "IAD": "워싱턴DC", "LAS": "라스베이거스", "MUC": "뮌헨", "PRG": "프라하",
+    "ZRH": "취리히", "VIE": "빈", "MAD": "마드리드", "BCN": "바르셀로나",
+    "MXP": "밀라노", "DEL": "델리", "BOM": "뭄바이", "CGK": "자카르타",
+    "DPS": "발리", "PNH": "프놈펜", "REP": "씨엠립", "VTE": "비엔티안",
+    "DAD": "다낭", "CXR": "나트랑", "PQC": "푸꾸옥", "HKT": "푸껫",
+    "CNX": "치앙마이", "RGN": "양곤", "KUL": "쿠알라룸푸르", "BKI": "코타키나발루",
+    "PEN": "페낭", "GUM": "괌", "SPN": "사이판", "ROR": "팔라우", "UBN": "울란바토르",
+    "KTI": "떼쪼", "TAE": "대구", "SHE": "심양", "HRB": "하얼빈", "SZX": "선전", "SLC": "솔트레이크시티",
+    "NGS": "나가사키", "YNJ": "옌지", "TAS": "타슈켄트", "ALA": "알마티", "TFU": "청두", "KMQ": "고마츠",
+    "HGH": "항저우", "NKG": "난징", "XIY": "시안", "FOC": "푸저우", "CGO": "정저우", "CKG": "충칭",
+    "CSX": "장사", "KMG": "쿤밍",
+}
+
+# [수정 4: 출발지 픽스] 한글(쓰리코드) 같이 100% 표시되게 강화된 로직
+def format_route(val):
+    val = str(val).strip().upper()
+    # 사전에 코드가 있으면 한글명+코드 조합으로 반환
+    if val in IATA_CITY_MAP:
+        return f"{IATA_CITY_MAP[val]}({val})"
     
+    # 1. 괄호가 있는 경우 분리 시도
+    match = re.search(r'^(.*?)\s*\((.*?)\)$', val)
     if match:
-        city = match.group(1).split('/')[0].strip() 
-        code = match.group(2).strip().upper()        
-        if code == "HND": city = "하네다"
-        elif code == "NRT": city = "나리타"
-            
-        if option == "한글 (도시명)": return city
-        elif option == "영어 (쓰리코드)": return code
-        else: return f"{city}({code})"
-            
-    if '/' in val: val = val.split('/')[0].strip()
+        part1 = match.group(1).strip()
+        part2 = match.group(2).strip().upper()
         
+        # 괄호 안이 3자리 영문 코드인 경우
+        if re.match(r'^[A-Z]{3}$', part2):
+            code = part2
+            # 한글 도시명이 없거나 영문만 있으면 매핑 사전에서 한글명 찾기
+            if not part1 or re.match(r'^[a-zA-Z/]+$', part1):
+                city = IATA_CITY_MAP.get(code, part1)
+            else:
+                city = part1
+            return f"{city}({code})" if city else f"({code})"
+            
+    # 2. 슬래시(/)가 있는 경우 앞부분만 취함
+    if '/' in val: val = val.split('/')[0].strip()
+    
+    # 3. 3자리 영문 코드만 달랑 있는 경우 (예: "LHR", "KIX")
     val_upper = val.upper()
-    if val_upper == "HND" or "HND" in val_upper:
-        if option == "한글 (도시명)": return "하네다"
-        elif option == "영어 (쓰리코드)": return "HND"
-        else: return "하네다(HND)"
-    elif val_upper == "NRT" or "NRT" in val_upper:
-        if option == "한글 (도시명)": return "나리타"
-        elif option == "영어 (쓰리코드)": return "NRT"
-        else: return "나리타(NRT)"
+    if re.match(r'^[A-Z]{3}$', val_upper):
+        city = IATA_CITY_MAP.get(val_upper, "")
+        if city:
+            return f"{city}({val_upper})"
+        return val_upper
         
     return val
 
@@ -346,7 +362,6 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
     df = df.sort_values('시간').reset_index(drop=True)
     
     html += f'<table class="merged-table" style="font-size: {font_size}px !important;"><thead><tr>'
-    # 예상시간 th 삭제 완료
     html += f'<th style="width:14%; font-size:{font_size}px !important;">시간</th>'
     html += f'<th style="width:18%; font-size:{font_size}px !important;">편명</th>'
     html += f'<th style="font-size:{font_size}px !important;">출발지</th>'
@@ -375,7 +390,6 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
         td_style = f' style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;"'
         
         html += f'<tr>'
-        # 예상시간 td 삭제 완료
         html += f'<td{td_style}>{row["시간"]}</td><td{td_style}>{row["편명"]}</td><td{td_style}>{row.get("출발지", "")}</td><td{td_style}>{row["게이트"]}</td><td{td_style}>{row["p_display"]}</td>'
         
         if current_h not in processed_hours:
@@ -390,11 +404,10 @@ with st.sidebar:
     st.header("🔗 빠른 사이트 이동")
     st.link_button("✈ 인천공항 도착편 조회", "https://www.airport.kr/ap_ko/872/subview.do", use_container_width=True)
     st.link_button("📧 네이버 메일함 열기", "https://mail.naver.com", use_container_width=True)
-    st.link_button("⏪ 이전 버전으로 이동", "https://t2-magazine-old-dby3dpnaxzhq7eoitpqrm7.streamlit.app/", use_container_width=True)
+    # [수정 3: 이전 버전으로 이동 버튼 깔끔하게 삭제 완료]
     st.divider()
 
     st.header("🔄 실시간 업데이트")
-    # 자동 갱신 대신, 수동 업데이트 버튼 유지 (버튼명 변경)
     if st.button("🔄 업데이트하기", use_container_width=True):
         fetch_realtime_gate_info.clear() 
         st.session_state["toast_msg"] = "게이트 정보를 최신 상태로 업데이트했습니다!"
@@ -462,7 +475,6 @@ with st.sidebar:
         st.markdown("</div>", unsafe_allow_html=True)
         
     st.divider()
-    # '어제' 날짜 제거 완료
     date_option = st.radio("📅 표시 날짜 선택", ["오늘", "내일 (+1일)"], index=0)
     
     KST = timezone(timedelta(hours=9))
@@ -473,8 +485,6 @@ with st.sidebar:
     display_date_str = target_date.strftime("%Y년 %m월 %d일")
     api_target_date_str = target_date.strftime("%Y%m%d")
     
-    st.divider()
-    route_option = st.radio("🌍 출발지 표기 방식", ["한글+영어 (혼합)", "한글 (도시명)", "영어 (쓰리코드)"], index=0)
     st.divider()
     vis_option = st.radio("🎨 시각화 옵션", ["적용 안 함", "1. ✈ 항공사별 색상 표시 (DL:연하늘, OZ:연분홍)", "2. ⏰ 첨두시간 색상 표시 (16~18시)"], index=0)
     opt_airline = (vis_option == "1. ✈ 항공사별 색상 표시 (DL:연하늘, OZ:연분홍)")
@@ -494,7 +504,7 @@ st.markdown(f"""
 # --- [메인 로직] ---
 p_all = []
 
-# 기존 승객 데이터 설정 (여기선 format_route 미적용, 병합 후 일괄 적용)
+# 기존 승객 데이터 설정
 if not saved_pax_df.empty:
     p_all.append(saved_pax_df)
 
@@ -502,7 +512,7 @@ if not saved_pax_df.empty:
 df_g = fetch_realtime_gate_info(api_target_date_str)
 
 if not p_all or df_g.empty:
-    st.markdown("<h2 style='text-align: center;'>✈ T2 보안검색 환승부 잡지 (실시간 게이트 연동) ✈</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>✈ T2 보안검색 환승부 잡지 (실시간 연동) ✈</h2>", unsafe_allow_html=True)
     with st.expander("💡 홈페이지 이용 방법 (필독)", expanded=True):
         st.markdown("""
         ### 🌐 데이터 공유 방식 안내
@@ -519,15 +529,19 @@ else:
     # 승객 정보 + 실시간 게이트 정보 매핑 (편명 기준)
     final = pd.merge(df_g, df_p, on='편명', how='inner', suffixes=('_api', '_pax'))
     
-    # [출발지 버그 픽스] 승객 데이터(엑셀/시트)의 출발지가 있으면 우선 사용, 없으면 API 제공 출발지 사용
+    # [수정 1: 델타항공 등 출발지 누락 데이터 병합(덮어쓰기) 방지 로직 개선]
+    # 빈 문자열을 잡아내어 API에서 가져온 출발지로 메워줍니다.
     if '출발지_pax' in final.columns:
-        final['출발지'] = final['출발지_pax'].combine_first(final['출발지_api'])
+        final['출발지'] = final.apply(
+            lambda row: row['출발지_api'] if pd.isna(row['출발지_pax']) or str(row['출발지_pax']).strip() == '' else row['출발지_pax'], 
+            axis=1
+        )
     else:
         final['출발지'] = final['출발지_api']
         
-    # 출발지 표기 방식 옵션을 최종 출발지 컬럼에 한 번만 일괄 적용하여 덮어쓰기 방지
+    # 출발지 표기 방식 일괄 고정 적용 ('한글+영어')
     if '출발지' in final.columns:
-        final['출발지'] = final['출발지'].apply(lambda x: format_route(x, route_option))
+        final['출발지'] = final['출발지'].apply(format_route)
         final = final[~final['출발지'].astype(str).str.contains('PUS|김해|부산', case=False, na=False)]
     
     if not final.empty:
