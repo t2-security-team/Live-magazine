@@ -439,9 +439,10 @@ with st.sidebar:
         st.session_state["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
         st.rerun()
         
-    # [수정] 마지막 업데이트 시간 캡션 표시
+    # [수정] 마지막 업데이트 시간 캡션 표시 및 트래픽 경고 문구 추가
     if "last_updated" in st.session_state:
         st.caption(f"마지막 업데이트: {st.session_state['last_updated']}")
+        st.caption("⚠️ 일일 트래픽 제한이 있으니 자주 업데이트시 허용량 초과로 기능 비활성화 될 수 있습니다.")
         
     st.divider()
     date_option = st.radio("📅 표시 날짜 선택", ["오늘", "내일 (+1일)"], index=0)
@@ -464,6 +465,7 @@ with st.sidebar:
     st.divider()
     base_font_size = st.slider("🔠 표 글자 크기 조절 (px)", min_value=10, max_value=17, value=12, step=1)
 
+    # --- [수정] 승객 데이터 업로드 영역을 사이드바 맨 아래로 이동 ---
     st.divider()
     st.header("📂 승객 데이터 업로드")
     
