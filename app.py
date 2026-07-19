@@ -444,7 +444,27 @@ with st.sidebar:
         st.caption(f"마지막 업데이트: {st.session_state['last_updated']}")
         
     st.divider()
+    date_option = st.radio("📅 표시 날짜 선택", ["오늘", "내일 (+1일)"], index=0)
     
+    # 시간 처리 로직 (now_kst는 아래 메인 로직에서 참조됨)
+    KST = timezone(timedelta(hours=9))
+    today_date = datetime.now(KST)
+    if date_option == "내일 (+1일)": target_date = today_date + timedelta(days=1)
+    else: target_date = today_date
+        
+    display_date_str = target_date.strftime("%Y년 %m월 %d일")
+    api_target_date_str = target_date.strftime("%Y%m%d")
+    
+    st.divider()
+    vis_option = st.radio("🎨 시각화 옵션", ["적용 안 함", "1. ✈ 항공사별 색상 표시 (DL:연하늘, OZ:연분홍)", "2. ⏰ 첨두시간 색상 표시 (16~18시)"], index=0)
+    opt_airline = (vis_option == "1. ✈ 항공사별 색상 표시 (DL:연하늘, OZ:연분홍)")
+    opt_peak = (vis_option == "2. ⏰ 첨두시간 색상 표시 (16~18시)")
+    st.divider()
+    time_range = st.slider("조회 시간대 (시)", 0, 24, (0, 24))
+    st.divider()
+    base_font_size = st.slider("🔠 표 글자 크기 조절 (px)", min_value=10, max_value=17, value=12, step=1)
+
+    st.divider()
     st.header("📂 승객 데이터 업로드")
     
     uploaded_pax_files = st.file_uploader("1. 승객수 파일 (.xls, .xlsx, .csv)", accept_multiple_files=True, key="pax_uploader")
@@ -504,27 +524,6 @@ with st.sidebar:
             st.session_state["toast_msg"] = "데이터를 모두 비웠습니다."
             st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
-        
-    st.divider()
-    date_option = st.radio("📅 표시 날짜 선택", ["오늘", "내일 (+1일)"], index=0)
-    
-    # 시간 처리 로직 (now_kst는 아래 메인 로직에서 참조됨)
-    KST = timezone(timedelta(hours=9))
-    today_date = datetime.now(KST)
-    if date_option == "내일 (+1일)": target_date = today_date + timedelta(days=1)
-    else: target_date = today_date
-        
-    display_date_str = target_date.strftime("%Y년 %m월 %d일")
-    api_target_date_str = target_date.strftime("%Y%m%d")
-    
-    st.divider()
-    vis_option = st.radio("🎨 시각화 옵션", ["적용 안 함", "1. ✈ 항공사별 색상 표시 (DL:연하늘, OZ:연분홍)", "2. ⏰ 첨두시간 색상 표시 (16~18시)"], index=0)
-    opt_airline = (vis_option == "1. ✈ 항공사별 색상 표시 (DL:연하늘, OZ:연분홍)")
-    opt_peak = (vis_option == "2. ⏰ 첨두시간 색상 표시 (16~18시)")
-    st.divider()
-    time_range = st.slider("조회 시간대 (시)", 0, 24, (0, 24))
-    st.divider()
-    base_font_size = st.slider("🔠 표 글자 크기 조절 (px)", min_value=10, max_value=17, value=12, step=1)
 
 st.markdown(f"""
     <style>
