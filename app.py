@@ -415,7 +415,7 @@ with st.sidebar:
         
     if "last_updated" in st.session_state:
         st.caption(f"마지막 업데이트: {st.session_state['last_updated']}")
-        st.caption("⚠️ 잦은 업데이트 시 트래픽 허용량 초과로 기능이 정지 될 수 있습니다.")
+        st.caption("⚠️ 잦은 업데이트 시 트래픽 허용량 초과로 기능이 정지 될 수 있습니다.(자정 초기화)")
         
     st.divider()
     date_option = st.radio("📅 표시 날짜 선택", ["오늘", "내일 (+1일)"], index=0)
@@ -428,9 +428,10 @@ with st.sidebar:
     api_target_date_str = target_date.strftime("%Y%m%d")
     
     st.divider()
-    vis_option = st.radio("🎨 시각화 옵션", ["적용 안 함", "1. ✈ 항공사별 색상 표시 (DL, OZ)", "2. ⏰ 첨두시간 색상 표시 (16~18시)"], index=0)
-    opt_airline = (vis_option == "1. ✈ 항공사별 색상 표시 (DL, OZ)")
-    opt_peak = (vis_option == "2. ⏰ 첨두시간 색상 표시 (16~18시)")
+    
+    vis_option = st.radio("🎨 시각화 옵션", ["✈ 항공사별 색상 표시 (DL, OZ)", "⏰ 첨두시간 색상 표시 (16~18시)", "적용 안 함"], index=0)
+    opt_airline = (vis_option == "✈ 항공사별 색상 표시 (DL, OZ)")
+    opt_peak = (vis_option == "⏰ 첨두시간 색상 표시 (16~18시)")
     
     time_range = st.slider("조회 시간대 (시)", 0, 24, (0, 24))
     base_font_size = st.slider("🔠 표 글자 크기 조절 (px)", min_value=10, max_value=17, value=12, step=1)
@@ -514,7 +515,7 @@ if not p_all or df_g.empty:
         st.markdown("""
         ### 🌐 데이터 공유 방식 안내
         * **자동 공유:** 사이드바에서 승객수 파일을 업로드하고 **[파일 저장]** 버튼을 누르면 서버에 보관됩니다.
-        * **실시간 게이트 연동:** 게이트 파일은 업로드할 필요 없이 실시간 도착편을 조회합니다.
+        * **실시간 게이트 연동:** 게이트 파일은 업로드할 필요 없이 실시간으로 도착편을 조회합니다.
         * **업데이트:** 게이트 정보가 변경되었을 수 있으니 언제든 사이드바의 **[🔄 업데이트하기]** 버튼을 눌러주세요.
         * **비우기 버튼:** 다음 날 데이터를 넣기 전, 사이드바의 **[🗑 전체 데이터 비우기]** 버튼을 누르면 서버 데이터가 초기화됩니다.
         """)
