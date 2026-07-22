@@ -446,8 +446,8 @@ with st.sidebar:
     opt_airline = (vis_option == "✈ 항공사별 색상 표시 (DL, OZ)")
     opt_peak = (vis_option == "⏰ 첨두시간 색상 표시 (16~18시)")
     
-    time_range = st.slider("조회 시간대 (시)", 0, 24, (0, 24), key="time_range_slider")
-    base_font_size = st.slider("🔠 표 글자 크기 조절 (px)", min_value=10, max_value=17, value=12, step=1, key="font_size_slider")
+    time_range = st.slider("조회 시간대 (시)", 0, 24, (0, 24))
+    base_font_size = st.slider("🔠 표 글자 크기 조절 (px)", min_value=10, max_value=17, value=12, step=1)
 
 
 st.markdown(f"""
@@ -469,7 +469,7 @@ if not p_all or df_g.empty:
     with st.expander("💡 홈페이지 이용 방법 (필독)", expanded=True):
         st.markdown("""
         ### 🌐 데이터 공유 방식 안내
-        * **자동 공유:** 서버에 연결된 데이터를 자동으로 불러옵니다.
+        * **자동 공유:** 구글 시트에 연결된 데이터를 자동으로 불러옵니다.
         * **실시간 게이트 연동:** 게이트 정보는 실시간으로 도착편을 조회합니다.
         * **업데이트:** 게이트 정보가 변경되었을 수 있으니 언제든 사이드바의 **[🔄 업데이트하기]** 버튼을 눌러주세요.
         * **스크롤 유지:** 자동 갱신 시에도 보시던 화면 위치가 그대로 유지됩니다.
