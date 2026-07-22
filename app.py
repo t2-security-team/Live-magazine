@@ -108,6 +108,26 @@ def clear_sheet(sheet_name):
     except Exception as e:
         st.sidebar.error(f"⚠ 데이터 비우기 실패: {e}")
 
+# 구글 시트(서버) 파일 마지막 업로드 시간 확인
+@st.cache_data(ttl=300, show_spinner=False)
+def get_last_upload_time():
+    try:
+        client = get_gspread_client()
+        spreadsheet = client.open(SHEET_NAME)
+        # 구글 드라이브 API를 이용해 시트의 마지막 수정 시간 확인
+        url = f"https://www.googleapis.com/drive/v3/files/{spreadsheet.id}?fields=modifiedTime"
+        response = client.request('get', url)
+        mod_time = response.json().get('modifiedTime')
+        
+        if mod_time:
+            # 받아온 시간(UTC)을 한국 시간(KST)으로 변환
+            dt_utc = datetime.strptime(mod_time[:19], "%Y-%m-%dT%H:%M:%S")
+            dt_kst = dt_utc.replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=9)))
+            return dt_kst.strftime("%Y-%m-%d %H:%M")
+    except:
+        pass
+    return None
+
 # ⭐ [실시간 게이트 데이터 API 연동]
 # [최적화] API 통신 지연 시 체감 속도 향상을 위해 spinner 표시
 @st.cache_data(ttl=1800, show_spinner="실시간 게이트 정보를 갱신 중입니다...")
@@ -153,7 +173,7 @@ if "toast_msg" in st.session_state:
     st.toast(st.session_state["toast_msg"], icon="✅")
     del st.session_state["toast_msg"]
 
-# --- [디자인 CSS (이전과 동일)] ---
+# --- [디자인 CSS] ---
 st.markdown("""
     <style>
     .main .block-container { padding-top: 0px !important; padding-bottom: 0px !important; margin-top: -15px !important; }
@@ -194,7 +214,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- [도구함 (데이터 처리 로직 - 이전과 동일)] ---
+# --- [도구함 (데이터 처리 로직)] ---
 def clean_flight_no(val):
     if pd.isna(val): return ""
     val = str(val).strip().replace(" ", "").upper()
@@ -404,7 +424,6 @@ saved_files = load_file_names()
 
 # --- [사이드바 설정] ---
 with st.sidebar:
-
     if not saved_pax_df.empty:
         with st.expander("✅ 현재 공유중인 승객 데이터 목록", expanded=True):
             if saved_files:
@@ -412,6 +431,12 @@ with st.sidebar:
                     st.markdown(f"<p class='file-item'>• {fname}</p>", unsafe_allow_html=True)
             else:
                 st.markdown("<p class='file-item'>• 데이터 적용 완료</p>", unsafe_allow_html=True)
+            
+            # --- 서버 업로드 시간 표시 ---
+            upload_time = get_last_upload_time()
+            if upload_time:
+                st.markdown(f"<p class='file-item' style='color:#6B7280; font-size:12px; margin-top:8px !important; font-weight:bold;'>🕒 시트 업데이트: {upload_time}</p>", unsafe_allow_html=True)
+                
         st.divider()
 
     date_option = st.radio("📅 표시 날짜 선택", ["오늘", "내일 (+1일)"], index=0)
@@ -437,7 +462,8 @@ with st.sidebar:
     st.header("🔄 실시간 업데이트")
     if st.button("🔄 업데이트하기", use_container_width=True):
         fetch_realtime_gate_info.clear() 
-        st.session_state["toast_msg"] = "게이트 정보를 최신 상태로 업데이트했습니다!"
+        get_last_upload_time.clear()
+        st.session_state["toast_msg"] = "게이트 정보와 시트 데이터를 최신 상태로 업데이트했습니다!"
         KST = timezone(timedelta(hours=9))
         st.session_state["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
         st.rerun()
