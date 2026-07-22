@@ -446,8 +446,8 @@ with st.sidebar:
     opt_airline = (vis_option == "✈ 항공사별 색상 표시 (DL, OZ)")
     opt_peak = (vis_option == "⏰ 첨두시간 색상 표시 (16~18시)")
     
-time_range = st.slider("조회 시간대 (시)", 0, 24, (0, 24), key="time_range_slider")
-base_font_size = st.slider("🔠 표 글자 크기 조절 (px)", min_value=10, max_value=17, value=12, step=1, key="font_size_slider")
+    time_range = st.slider("조회 시간대 (시)", 0, 24, (0, 24), key="time_range_slider")
+    base_font_size = st.slider("🔠 표 글자 크기 조절 (px)", min_value=10, max_value=17, value=12, step=1, key="font_size_slider")
 
 
 st.markdown(f"""
