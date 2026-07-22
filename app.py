@@ -404,10 +404,6 @@ saved_files = load_file_names()
 
 # --- [사이드바 설정] ---
 with st.sidebar:
-    st.header("🔗 빠른 사이트 이동")
-    st.link_button("✈ 인천공항 도착편 조회", "https://www.airport.kr/ap_ko/872/subview.do", use_container_width=True)
-    st.link_button("📧 네이버 메일함 열기", "https://mail.naver.com", use_container_width=True)
-    st.divider()
 
     if not saved_pax_df.empty:
         with st.expander("✅ 현재 공유중인 승객 데이터 목록", expanded=True):
