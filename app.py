@@ -110,7 +110,7 @@ def clear_sheet(sheet_name):
 
 # ⭐ [실시간 게이트 데이터 API 연동]
 # [최적화] API 통신 지연 시 체감 속도 향상을 위해 spinner 표시
-@st.cache_data(ttl=60, show_spinner="실시간 게이트 정보를 갱신 중입니다...")
+@st.cache_data(ttl=120, show_spinner="실시간 게이트 정보를 갱신 중입니다...")
 def fetch_realtime_gate_info(search_date_str):
     api_key = st.secrets["api"]["service_key"]
     url = "http://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp"
