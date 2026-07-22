@@ -418,19 +418,6 @@ with st.sidebar:
                 st.markdown("<p class='file-item'>• 데이터 적용 완료</p>", unsafe_allow_html=True)
         st.divider()
 
-    st.header("🔄 실시간 업데이트")
-    if st.button("🔄 업데이트하기", use_container_width=True):
-        fetch_realtime_gate_info.clear() 
-        st.session_state["toast_msg"] = "게이트 정보를 최신 상태로 업데이트했습니다!"
-        KST = timezone(timedelta(hours=9))
-        st.session_state["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
-        st.rerun()
-        
-    if "last_updated" in st.session_state:
-        st.caption(f"마지막 업데이트: {st.session_state['last_updated']}")
-        st.caption("⚠️ 잦은 업데이트 시 트래픽 허용량 초과로 기능이 정지 될 수 있습니다.(자정 초기화)")
-        
-    st.divider()
     date_option = st.radio("📅 표시 날짜 선택", ["오늘", "내일 (+1일)"], index=0)
     
     KST = timezone(timedelta(hours=9))
@@ -448,6 +435,20 @@ with st.sidebar:
     
     time_range = st.slider("조회 시간대 (시)", 0, 24, (0, 24))
     base_font_size = st.slider("🔠 표 글자 크기 조절 (px)", min_value=10, max_value=17, value=12, step=1)
+    
+    st.divider()
+
+    st.header("🔄 실시간 업데이트")
+    if st.button("🔄 업데이트하기", use_container_width=True):
+        fetch_realtime_gate_info.clear() 
+        st.session_state["toast_msg"] = "게이트 정보를 최신 상태로 업데이트했습니다!"
+        KST = timezone(timedelta(hours=9))
+        st.session_state["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+        st.rerun()
+        
+    if "last_updated" in st.session_state:
+        st.caption(f"마지막 업데이트: {st.session_state['last_updated']}")
+        st.caption("⚠️ 잦은 업데이트 시 트래픽 허용량 초과로 기능이 정지 될 수 있습니다.(자정 초기화)")
 
 
 st.markdown(f"""
