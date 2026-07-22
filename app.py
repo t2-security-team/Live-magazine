@@ -360,8 +360,6 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
     hour_sums = df.groupby('hour_val')['p_val'].sum()
     processed_hours = set()
     
-    found_current = False
-    
     for i, row in df.iterrows():
         current_h, flt = row['hour_val'], str(row['편명']).upper()
         row_style_css, text_style = "", ""
@@ -376,15 +374,10 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
                     is_past_20_mins = True
         except: pass
             
-        tr_id = ""
         if is_past_20_mins:
             text_style = " text-decoration: line-through; color: #6B7280;"
             row_style_css = "background-color: #F9FAFB;" 
         else:
-            if not found_current:
-                tr_id = ' id="current-time-row"'
-                found_current = True
-                
             if opt_airline:
                 if flt.startswith("DL"): row_style_css = "background-color: #E3F2FD;" 
                 elif flt.startswith("OZ"): row_style_css = "background-color: #FDF4F7;" 
@@ -395,7 +388,7 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
                 
         td_style = f' style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}"'
         
-        html += f'<tr{tr_id}><td{td_style}>{row["시간"]}</td><td{td_style}>{row["편명"]}</td><td{td_style}>{row.get("출발지", "")}</td><td{td_style}>{row["게이트"]}</td><td{td_style}>{row["p_display"]}</td>'
+        html += f'<tr><td{td_style}>{row["시간"]}</td><td{td_style}>{row["편명"]}</td><td{td_style}>{row.get("출발지", "")}</td><td{td_style}>{row["게이트"]}</td><td{td_style}>{row["p_display"]}</td>'
         
         if current_h not in processed_hours:
             sum_font = font_size + 1
@@ -432,9 +425,6 @@ with st.sidebar:
         KST = timezone(timedelta(hours=9))
         st.session_state["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
         st.rerun()
-        
-    if st.button("🎯 현재 시간으로 이동", use_container_width=True):
-        st.components.v1.html("<script>window.parent.sessionStorage.setItem('forceScrollToCurrent', 'true');</script>", height=0)
         
     if "last_updated" in st.session_state:
         st.caption(f"마지막 업데이트: {st.session_state['last_updated']}")
@@ -482,7 +472,7 @@ if not p_all or df_g.empty:
         * **자동 공유:** 구글 시트에 연결된 데이터를 자동으로 불러옵니다.
         * **실시간 게이트 연동:** 게이트 정보는 실시간으로 도착편을 조회합니다.
         * **업데이트:** 게이트 정보가 변경되었을 수 있으니 언제든 사이드바의 **[🔄 업데이트하기]** 버튼을 눌러주세요.
-        * **스크롤 유지:** 자동 갱신 시에도 보시던 화면 위치가 그대로 유지됩니다. 현재 시간대로 가시려면 **[🎯 현재 시간으로 이동]** 버튼을 활용하세요.
+        * **스크롤 유지:** 자동 갱신 시에도 보시던 화면 위치가 그대로 유지됩니다.
         """)
     if df_g.empty:
         st.info(f"🔄 {display_date_str}의 실시간 공항 API에서 게이트 데이터를 불러오는 중이거나 데이터가 없습니다.")
@@ -630,26 +620,16 @@ else:
                 }, 800);
             }
             
-            // --- [스크롤 및 위치 이동 기능 추가] ---
+            // --- [스크롤 위치 유지 기능] ---
             var parentWin = window.parent;
             var parentDoc = parentWin.document;
 
             function doScrollLogic() {
-                var forceCurrent = parentWin.sessionStorage.getItem('forceScrollToCurrent');
                 var scrollContainer = parentDoc.querySelector('.main') || parentWin;
-
-                if (forceCurrent === 'true') {
-                    var target = parentDoc.getElementById('current-time-row');
-                    if (target) {
-                        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }
-                    parentWin.sessionStorage.removeItem('forceScrollToCurrent');
-                } else {
-                    var savedScroll = parentWin.sessionStorage.getItem('stScrollPos');
-                    if (savedScroll) {
-                        if (scrollContainer.scrollTo) {
-                            scrollContainer.scrollTo(0, parseInt(savedScroll));
-                        }
+                var savedScroll = parentWin.sessionStorage.getItem('stScrollPos');
+                if (savedScroll) {
+                    if (scrollContainer.scrollTo) {
+                        scrollContainer.scrollTo(0, parseInt(savedScroll));
                     }
                 }
             }
