@@ -360,6 +360,8 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
     hour_sums = df.groupby('hour_val')['p_val'].sum()
     processed_hours = set()
     
+    found_current = False
+    
     for i, row in df.iterrows():
         current_h, flt = row['hour_val'], str(row['편명']).upper()
         row_style_css, text_style = "", ""
@@ -374,10 +376,15 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
                     is_past_20_mins = True
         except: pass
             
+        tr_id = ""
         if is_past_20_mins:
             text_style = " text-decoration: line-through; color: #6B7280;"
             row_style_css = "background-color: #F9FAFB;" 
         else:
+            if not found_current:
+                tr_id = ' id="current-time-row"'
+                found_current = True
+                
             if opt_airline:
                 if flt.startswith("DL"): row_style_css = "background-color: #E3F2FD;" 
                 elif flt.startswith("OZ"): row_style_css = "background-color: #FDF4F7;" 
@@ -388,7 +395,7 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
                 
         td_style = f' style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}"'
         
-        html += f'<tr><td{td_style}>{row["시간"]}</td><td{td_style}>{row["편명"]}</td><td{td_style}>{row.get("출발지", "")}</td><td{td_style}>{row["게이트"]}</td><td{td_style}>{row["p_display"]}</td>'
+        html += f'<tr{tr_id}><td{td_style}>{row["시간"]}</td><td{td_style}>{row["편명"]}</td><td{td_style}>{row.get("출발지", "")}</td><td{td_style}>{row["게이트"]}</td><td{td_style}>{row["p_display"]}</td>'
         
         if current_h not in processed_hours:
             sum_font = font_size + 1
@@ -398,12 +405,25 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
     return html + '</tbody></table></div>'
 
 
+# [최적화] 시트 데이터 로드를 UI 렌더링에 방해되지 않도록 호출 순서 조정
+saved_pax_df = load_from_sheet("pax_data")
+saved_files = load_file_names()
+
 # --- [사이드바 설정] ---
 with st.sidebar:
     st.header("🔗 빠른 사이트 이동")
     st.link_button("✈ 인천공항 도착편 조회", "https://www.airport.kr/ap_ko/872/subview.do", use_container_width=True)
     st.link_button("📧 네이버 메일함 열기", "https://mail.naver.com", use_container_width=True)
     st.divider()
+
+    if not saved_pax_df.empty:
+        with st.expander("✅ 현재 공유중인 승객 데이터 목록", expanded=True):
+            if saved_files:
+                for fname in saved_files:
+                    st.markdown(f"<p class='file-item'>• {fname}</p>", unsafe_allow_html=True)
+            else:
+                st.markdown("<p class='file-item'>• 데이터 적용 완료</p>", unsafe_allow_html=True)
+        st.divider()
 
     st.header("🔄 실시간 업데이트")
     if st.button("🔄 업데이트하기", use_container_width=True):
@@ -412,6 +432,9 @@ with st.sidebar:
         KST = timezone(timedelta(hours=9))
         st.session_state["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
         st.rerun()
+        
+    if st.button("🎯 현재 시간으로 이동", use_container_width=True):
+        st.components.v1.html("<script>window.parent.sessionStorage.setItem('forceScrollToCurrent', 'true');</script>", height=0)
         
     if "last_updated" in st.session_state:
         st.caption(f"마지막 업데이트: {st.session_state['last_updated']}")
@@ -436,64 +459,6 @@ with st.sidebar:
     time_range = st.slider("조회 시간대 (시)", 0, 24, (0, 24))
     base_font_size = st.slider("🔠 표 글자 크기 조절 (px)", min_value=10, max_value=17, value=12, step=1)
 
-    st.divider()
-    st.header("📂 승객 데이터 업로드")
-    
-    uploaded_pax_files = st.file_uploader("승객수 파일 (.xls, .xlsx, .csv)", accept_multiple_files=True, key="pax_uploader")
-    
-    if uploaded_pax_files:
-        if st.button("💾 파일 저장", use_container_width=True):
-            with st.spinner("📤 업로드한 파일을 처리하고 저장하는 중..."):
-                p_temp, new_file_names = [], []
-                for f in uploaded_pax_files:
-                    df = smart_read(f)
-                    if df is not None:
-                        dl_df = parse_dl_pax(df)
-                        if dl_df is not None:
-                            p_temp.append(dl_df)
-                            new_file_names.append(f.name)
-                        else:
-                            f_c = find_col(df, ['FLT', '편명', 'FLIGHT'])
-                            p_c = find_col(df, ['TS', 'PAX', '승객수', 'T/S', 'TTL', 'TOTAL'])
-                            r_c = find_col(df, ['FROM', 'ROUTE', '출발지'])
-                            if f_c and p_c:
-                                tmp = df[[f_c, p_c]].copy()
-                                if r_c: tmp['출발지'] = df[r_c].astype(str)
-                                tmp.columns = ['편명', '승객수', '출발지'] if r_c else ['편명', '승객수']
-                                tmp['편명'] = tmp['편명'].apply(clean_flight_no)
-                                p_temp.append(tmp)
-                                new_file_names.append(f.name)
-                
-                upload_ok = False
-                if p_temp:
-                    combined_df = pd.concat(p_temp).drop_duplicates('편명')
-                    upload_ok = save_to_sheet(combined_df, "pax_data")
-                    if upload_ok: append_file_names(new_file_names)
-            
-            if upload_ok:
-                st.session_state["toast_msg"] = f"{len(new_file_names)}개 파일 업로드 완료!"
-            elif not p_temp:
-                st.session_state["toast_msg"] = "⚠ 인식 가능한 데이터를 찾지 못했습니다."
-            st.rerun()
-            
-    # [최적화] 시트 데이터 로드를 UI 렌더링에 방해되지 않도록 호출 순서 조정
-    saved_pax_df = load_from_sheet("pax_data")
-    saved_files = load_file_names()
-    
-    if not saved_pax_df.empty:
-        # [최적화] 사이드바 공간을 절약하고 깔끔하게 보이기 위해 expander(접기/펴기) 사용
-        with st.expander("✅ 현재 공유중인 승객 데이터 목록", expanded=False):
-            if saved_files:
-                for fname in saved_files:
-                    st.markdown(f"<p class='file-item'>• {fname}</p>", unsafe_allow_html=True)
-            else:
-                st.markdown("<p class='file-item'>• 데이터 적용 완료</p>", unsafe_allow_html=True)
-                
-            if st.button("🗑 전체 데이터 비우기", use_container_width=True):
-                clear_sheet("pax_data")
-                clear_sheet("file_list")
-                st.session_state["toast_msg"] = "데이터를 모두 비웠습니다."
-                st.rerun()
 
 st.markdown(f"""
     <style>
@@ -514,10 +479,10 @@ if not p_all or df_g.empty:
     with st.expander("💡 홈페이지 이용 방법 (필독)", expanded=True):
         st.markdown("""
         ### 🌐 데이터 공유 방식 안내
-        * **자동 공유:** 사이드바에서 승객수 파일을 업로드하고 **[파일 저장]** 버튼을 누르면 서버에 보관됩니다.
-        * **실시간 게이트 연동:** 게이트 파일은 업로드할 필요 없이 실시간으로 도착편을 조회합니다.
+        * **자동 공유:** 구글 시트에 연결된 데이터를 자동으로 불러옵니다.
+        * **실시간 게이트 연동:** 게이트 정보는 실시간으로 도착편을 조회합니다.
         * **업데이트:** 게이트 정보가 변경되었을 수 있으니 언제든 사이드바의 **[🔄 업데이트하기]** 버튼을 눌러주세요.
-        * **비우기 버튼:** 다음 날 데이터를 넣기 전, 사이드바의 **[🗑 전체 데이터 비우기]** 버튼을 누르면 서버 데이터가 초기화됩니다.
+        * **스크롤 유지:** 자동 갱신 시에도 보시던 화면 위치가 그대로 유지됩니다. 현재 시간대로 가시려면 **[🎯 현재 시간으로 이동]** 버튼을 활용하세요.
         """)
     if df_g.empty:
         st.info(f"🔄 {display_date_str}의 실시간 공항 API에서 게이트 데이터를 불러오는 중이거나 데이터가 없습니다.")
@@ -664,6 +629,42 @@ else:
                     });
                 }, 800);
             }
+            
+            // --- [스크롤 및 위치 이동 기능 추가] ---
+            var parentWin = window.parent;
+            var parentDoc = parentWin.document;
+
+            function doScrollLogic() {
+                var forceCurrent = parentWin.sessionStorage.getItem('forceScrollToCurrent');
+                var scrollContainer = parentDoc.querySelector('.main') || parentWin;
+
+                if (forceCurrent === 'true') {
+                    var target = parentDoc.getElementById('current-time-row');
+                    if (target) {
+                        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                    parentWin.sessionStorage.removeItem('forceScrollToCurrent');
+                } else {
+                    var savedScroll = parentWin.sessionStorage.getItem('stScrollPos');
+                    if (savedScroll) {
+                        if (scrollContainer.scrollTo) {
+                            scrollContainer.scrollTo(0, parseInt(savedScroll));
+                        }
+                    }
+                }
+            }
+
+            // 페이지 렌더링 후 스크롤 로직 실행
+            setTimeout(doScrollLogic, 400);
+
+            // 매초마다 현재 화면의 스크롤 위치를 지속적으로 저장 (자동 갱신 시 튕김 방지)
+            setInterval(function() {
+                var scrollContainer = parentDoc.querySelector('.main') || parentWin;
+                var scrollTop = scrollContainer.scrollTop || parentWin.scrollY || 0;
+                if(scrollTop > 0) {
+                    parentWin.sessionStorage.setItem('stScrollPos', scrollTop);
+                }
+            }, 1000);
             </script>
             """, height=45
         )
