@@ -186,6 +186,12 @@ st.markdown("""
     .print-row { display: flex; flex-direction: row; gap: 15px; width: 100%; }
     .print-col { flex: 1; min-width: 0; margin-bottom: 0px !important; }
     
+    /* ⭐ 과거 데이터와 동일한 회색 깜빡임 (글자색상 포함) */
+    @keyframes blink-gray-anim {
+        0%, 100% { background-color: #F9FAFB !important; color: #6B7280 !important; }
+        50% { background-color: transparent !important; color: inherit; }
+    }
+    
     @media print {
         .no-print, header, footer, [data-testid="stSidebar"], [data-testid="stHeader"], [data-testid="stToolbar"], iframe { display: none !important; }
         html, body { height: auto !important; min-height: auto !important; padding-bottom: 0 !important; margin-bottom: 0 !important; padding-top: 0 !important; }
@@ -347,6 +353,7 @@ def format_route(val):
         
     return val
 
+# ⭐ [핵심 변경] 스트림릿 필터링 우회를 위한 동적 CSS 주입 함수
 def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_size, target_date, now_kst):
     display_title = f"{title} ({count:,}명)"
     html = f"<div class='print-col'><h3 style='text-align:center; color:{color}; font-size:16px; margin-top:2px; margin-bottom:5px;'>{display_title}</h3>"
@@ -354,21 +361,17 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
     
     df = df.sort_values('시간').reset_index(drop=True)
     
-    html += f'<table class="merged-table" style="font-size: {font_size}px !important;"><thead><tr>'
-    html += f'<th style="width:14%; font-size:{font_size}px !important;">시간</th>'
-    html += f'<th style="width:18%; font-size:{font_size}px !important;">편명</th>'
-    html += f'<th style="font-size:{font_size}px !important;">출발지</th>'
-    html += f'<th style="width:14%; font-size:{font_size}px !important;">게이트</th>'
-    html += f'<th style="width:13%; font-size:{font_size}px !important;">승객</th>'
-    html += f'<th style="width:13%; font-size:{font_size}px !important;">합계</th>'
-    html += f'</tr></thead><tbody>'
+    zone_class = "table-west" if "서편" in title else "table-east"
+    dynamic_css = ""
+    tbody_html = ""
     
     df['hour_val'] = df['시간'].astype(str).str.extract(r'^(\d{1,2})').fillna(0).astype(int)
     hour_counts = df['hour_val'].value_counts().sort_index()
     hour_sums = df.groupby('hour_val')['p_val'].sum()
     processed_hours = set()
     
-    for i, row in df.iterrows():
+    # ⭐ 행 번호(row_idx)를 계산하면서 HTML 렌더링
+    for row_idx, (i, row) in enumerate(df.iterrows(), start=1):
         current_h, flt = row['hour_val'], str(row['편명']).upper()
         row_style_css, text_style = "", ""
         
@@ -381,40 +384,55 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
                 f_hour, f_min = int(time_parts[0]), int(time_parts[1])
                 flight_dt = target_date.replace(hour=f_hour, minute=f_min, second=0, microsecond=0)
                 
-                # ⭐ 시간 계산 로직
                 if flight_dt <= now_kst - timedelta(minutes=20):
                     is_past_20_mins = True
                 elif now_kst - timedelta(minutes=10) <= flight_dt <= now_kst + timedelta(minutes=10):
                     is_blinking = True
         except: pass
             
-        # 기존 항공사 색상/시간대 색상 적용 (JS 깜빡임이 안 먹히더라도 기본 색상은 남도록)
-        if opt_airline:
-            if flt.startswith("DL"): row_style_css = "background-color: #E3F2FD;" 
-            elif flt.startswith("OZ"): row_style_css = "background-color: #FDF4F7;" 
-        elif opt_peak:
-            if current_h == 16: row_style_css = "background-color: #F4FAFD;" 
-            elif current_h == 17: row_style_css = "background-color: #FFFDF0;" 
-            elif current_h == 18: row_style_css = "background-color: #FFF5F8;" 
-                
-        # 취소선 처리
         if is_past_20_mins:
             text_style = " text-decoration: line-through; color: #6B7280;"
             row_style_css = "background-color: #F9FAFB;" 
+        else:
+            if opt_airline:
+                if flt.startswith("DL"): row_style_css = "background-color: #E3F2FD;" 
+                elif flt.startswith("OZ"): row_style_css = "background-color: #FDF4F7;" 
+            elif opt_peak:
+                if current_h == 16: row_style_css = "background-color: #F4FAFD;" 
+                elif current_h == 17: row_style_css = "background-color: #FFFDF0;" 
+                elif current_h == 18: row_style_css = "background-color: #FFF5F8;" 
         
-        # ⭐ Streamlit의 필터링을 완벽 우회하기 위한 꼼수(숨겨진 마커 삽입)
-        marker = '<span class="blink-marker" style="display:none;"></span>' if is_blinking else ''
+        # ⭐ 우회 기법: 이 줄이 깜빡여야 한다면, 해당 줄만 콕 찝는 CSS를 동적으로 생성
+        if is_blinking:
+            # sum-cell(전체 승객수) 칸은 제외하고 깜빡임 효과 적용
+            dynamic_css += f".{zone_class} tbody tr:nth-child({row_idx}) td:not(.sum-cell) {{ animation: blink-gray-anim 1.5s ease-in-out infinite !important; }}\n"
         
         td_style = f' style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}"'
         
-        html += f'<tr><td{td_style}>{row["시간"]}{marker}</td><td{td_style}>{row["편명"]}</td><td{td_style}>{row.get("출발지", "")}</td><td{td_style}>{row["게이트"]}</td><td{td_style}>{row["p_display"]}</td>'
+        tbody_html += f'<tr><td{td_style}>{row["시간"]}</td><td{td_style}>{row["편명"]}</td><td{td_style}>{row.get("출발지", "")}</td><td{td_style}>{row["게이트"]}</td><td{td_style}>{row["p_display"]}</td>'
         
         if current_h not in processed_hours:
             sum_font = font_size + 1
-            html += f'<td rowspan="{hour_counts[current_h]}" class="sum-cell" style="background-color: #ffffff !important; font-size: {sum_font}px !important; font-weight: bold !important;"><div style="position: relative; z-index: 10;">{hour_sums[current_h]:,}</div></td>'
+            tbody_html += f'<td rowspan="{hour_counts[current_h]}" class="sum-cell" style="background-color: #ffffff !important; font-size: {sum_font}px !important; font-weight: bold !important;"><div style="position: relative; z-index: 10;">{hour_sums[current_h]:,}</div></td>'
             processed_hours.add(current_h)
-        html += '</tr>'
-    return html + '</tbody></table></div>'
+        tbody_html += '</tr>'
+
+    # 동적으로 생성된 CSS를 표 바로 위에 심어줍니다.
+    if dynamic_css:
+        html += f"<style>{dynamic_css}</style>"
+        
+    html += f'<table class="merged-table {zone_class}" style="font-size: {font_size}px !important;"><thead><tr>'
+    html += f'<th style="width:14%; font-size:{font_size}px !important;">시간</th>'
+    html += f'<th style="width:18%; font-size:{font_size}px !important;">편명</th>'
+    html += f'<th style="font-size:{font_size}px !important;">출발지</th>'
+    html += f'<th style="width:14%; font-size:{font_size}px !important;">게이트</th>'
+    html += f'<th style="width:13%; font-size:{font_size}px !important;">승객</th>'
+    html += f'<th style="width:13%; font-size:{font_size}px !important;">합계</th>'
+    html += f'</tr></thead><tbody>'
+    html += tbody_html
+    html += '</tbody></table></div>'
+    
+    return html
 
 
 # --- [사이드바 설정] ---
@@ -438,7 +456,7 @@ with st.sidebar:
     opt_peak = (vis_option == "⏰ 첨두시간 색상 표시 (16~18시)")
     
     time_range = st.slider("조회 시간대 (시)", 0, 24, (0, 24))
-    base_font_size = st.slider("🔠 표 글자 크기 조절 (px)", min_value=10, max_value=17, value=12, step=1)
+    base_font_size = st.slider("🔠 표 글자 조절 (px)", min_value=10, max_value=17, value=12, step=1)
     
     st.divider()
 
@@ -570,7 +588,6 @@ else:
         def c_sum(c): return final[final['편명'].str.startswith(c, na=False)]['p_val'].sum()
         ke_s, oz_s, dl_s = c_sum('KE'), c_sum('OZ'), c_sum('DL')
         
-        # ⭐⭐⭐ JS를 통해 부모 창에 직접 CSS 애니메이션을 강제로 심는 스크립트 ⭐⭐⭐
         st.components.v1.html(
             """
             <style>
@@ -589,35 +606,6 @@ else:
             var parentWin = window.parent;
             var parentDoc = parentWin.document;
 
-            // 1) Streamlit 필터링을 우회하여 깜빡임 애니메이션을 직접 주입
-            if (!parentDoc.getElementById('blink-style-override')) {
-                var styleEl = parentDoc.createElement('style');
-                styleEl.id = 'blink-style-override';
-                styleEl.innerHTML = `
-                    @keyframes super-blink-bg {
-                        0%, 100% { background-color: #ffcccc !important; color: #b91c1c !important; }
-                        50% { background-color: #ffffff !important; color: #1f2937 !important; }
-                    }
-                    /* 합계(sum-cell)는 깜빡이지 않도록 제외 */
-                    tr.super-blink td:not(.sum-cell) {
-                        animation: super-blink-bg 1.2s ease-in-out infinite !important;
-                    }
-                `;
-                parentDoc.head.appendChild(styleEl);
-            }
-
-            // 2) 0.3초마다 마커(.blink-marker)를 찾아서 해당 줄(tr)에 애니메이션 클래스 적용
-            setInterval(function() {
-                var markers = parentDoc.querySelectorAll('.blink-marker');
-                markers.forEach(function(marker) {
-                    var tr = marker.closest('tr');
-                    if (tr && !tr.classList.contains('super-blink')) {
-                        tr.classList.add('super-blink');
-                    }
-                });
-            }, 300);
-
-            // 3) 사진 캡처 스크립트
             function takePic() {
                 var btn = document.getElementById('pic-btn');
                 btn.innerText = "⏳ 캡처 중... 잠시만요!";
@@ -689,7 +677,6 @@ else:
                 }, 800);
             }
 
-            // 4) 스크롤 유지 스크립트
             function doScrollLogic() {
                 var scrollContainer = parentDoc.querySelector('.main') || parentWin;
                 var savedScroll = parentWin.sessionStorage.getItem('stScrollPos');
