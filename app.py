@@ -118,6 +118,7 @@ def fetch_realtime_gate_info(search_date_str):
     api_key = st.secrets["api"]["service_key"]
     url = "http://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp"
     
+    # [요청 반영] 다시 3000건으로 조회
     req_url = f"{url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=json&numOfRows=3000&pageNo=1"
     
     try:
@@ -147,7 +148,14 @@ def fetch_realtime_gate_info(search_date_str):
                     '출발지': item.get('airportCode', '') or item.get('airport', ''),
                     '출구': item.get('exitNumber', '')
                 })
-        return pd.DataFrame(items)
+        
+        df = pd.DataFrame(items)
+        
+        # [최적화] KE, OZ, DL 편명만 미리 필터링하여 처리 속도 및 메모리 효율성 극대화
+        if not df.empty:
+            df = df[df['편명'].str.startswith(('KE', 'OZ', 'DL'), na=False)]
+            
+        return df
     except Exception as e:
         return pd.DataFrame()
 
@@ -156,7 +164,7 @@ if "toast_msg" in st.session_state:
     st.toast(st.session_state["toast_msg"], icon="✅")
     del st.session_state["toast_msg"]
 
-# --- [디자인 CSS (이전과 동일)] ---
+# --- [디자인 CSS] ---
 st.markdown("""
     <style>
     .main .block-container { padding-top: 0px !important; padding-bottom: 0px !important; margin-top: -15px !important; }
@@ -197,7 +205,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- [도구함 (데이터 처리 로직 - 이전과 동일)] ---
+# --- [도구함 (데이터 처리 로직)] ---
 def clean_flight_no(val):
     if pd.isna(val): return ""
     val = str(val).strip().replace(" ", "").upper()
@@ -320,7 +328,7 @@ IATA_CITY_MAP = {
     "NGS": "나가사키", "YNJ": "옌지", "TAS": "타슈켄트", "ALA": "알마티", "TFU": "청두", "KMQ": "고마츠",
     "HGH": "항저우", "NKG": "난징", "XIY": "시안", "FOC": "푸저우", "CGO": "정저우", "CKG": "충칭",
     "CSX": "장사", "KMG": "쿤밍", "DYG": "장가계", "KTM": "카트만두", "CRK": "클라크필드", "SDJ": "센다이",
-    "OKJ": "오카야마", "AOJ": "아오모리", "WUH": "우한", "XMN": "샤먼", "KMI": "미야자키", "KMJ": "구마모토",
+    "OKJ": "오카야마", "AOJ": "아오모리", "WUH": "우한", "XMN": "샤먼", "KMI": "미야자키",  "KMJ": "구마모토",
 }
 
 def format_route(val):
@@ -401,9 +409,8 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
     return html + '</tbody></table></div>'
 
 
-# --- [사이드바 설정 (UI 순서 유지를 위한 구조 변경)] ---
+# --- [사이드바 설정] ---
 with st.sidebar:
-    # 빈 공간을 마련해둡니다. 구글 시트 데이터를 다 받아오면 여기에 파일 목록을 그려넣습니다.
     file_list_placeholder = st.container()
     st.divider()
 
@@ -441,7 +448,6 @@ with st.sidebar:
 
 
 # ⭐⭐⭐ [핵심 최적화: 데이터 병렬 로딩] ⭐⭐⭐
-# 날짜(api_target_date_str)가 확정되었으므로 3가지 데이터를 동시에 백그라운드에서 불러옵니다.
 ctx = get_script_run_ctx()
 
 def thread_wrapper(func, *args):
@@ -451,18 +457,15 @@ def thread_wrapper(func, *args):
 
 with st.spinner("⏳ 실시간 게이트 및 승객 데이터를 병렬로 빠르게 불러오는 중입니다..."):
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-        # 동시에 3개의 스레드를 출발시킵니다.
         future_api = executor.submit(thread_wrapper, fetch_realtime_gate_info, api_target_date_str)
         future_pax = executor.submit(thread_wrapper, load_from_sheet, "pax_data")
         future_files = executor.submit(thread_wrapper, load_file_names)
         
-        # 3개의 작업이 모두 완료될 때까지 기다렸다가 결과를 변수에 저장합니다.
         df_g = future_api.result()
         saved_pax_df = future_pax.result()
         saved_files = future_files.result()
 
 
-# 데이터를 다 받아왔으므로, 아까 비워두었던 사이드바 위쪽 공간에 파일 목록을 표시합니다.
 with file_list_placeholder:
     if not saved_pax_df.empty:
         with st.expander("✅ 현재 공유중인 승객 데이터 목록", expanded=True):
