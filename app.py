@@ -113,7 +113,7 @@ def clear_sheet(sheet_name):
         st.sidebar.error(f"⚠ 데이터 비우기 실패: {e}")
 
 # ⭐ [실시간 게이트 데이터 API 연동]
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
     api_key = st.secrets["api"]["service_key"]
     url = "http://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp"
