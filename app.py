@@ -118,8 +118,7 @@ def fetch_realtime_gate_info(search_date_str):
     api_key = st.secrets["api"]["service_key"]
     url = "http://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp"
     
-    # [최적화] 3000건 -> 2000건으로 축소하여 서버 부담 완화
-    req_url = f"{url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=json&numOfRows=2000&pageNo=1"
+    req_url = f"{url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=json&numOfRows=3000&pageNo=1"
     
     try:
         response = requests.get(req_url, timeout=15)
