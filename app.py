@@ -409,6 +409,7 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
 
 
 # --- [사이드바 설정] ---
+# --- [사이드바 설정] ---
 with st.sidebar:
     file_list_placeholder = st.container()
     st.divider()
@@ -433,9 +434,10 @@ with st.sidebar:
     
     st.divider()
 
+    # 1. 일상적인 게이트 갱신용 버튼 (가볍게 동작)
     st.header("🔄 실시간 업데이트")
     if st.button("🔄 업데이트하기", use_container_width=True):
-        fetch_realtime_gate_info.clear() 
+        fetch_realtime_gate_info.clear() # 공공데이터(게이트) 캐시만 지움
         st.session_state["toast_msg"] = "게이트 정보를 최신 상태로 업데이트했습니다!"
         KST = timezone(timedelta(hours=9))
         st.session_state["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
@@ -445,6 +447,21 @@ with st.sidebar:
         st.caption(f"마지막 업데이트: {st.session_state['last_updated']}")
         st.caption("⚠️ 잦은 업데이트 시 트래픽 허용량 초과로 기능이 정지 될 수 있습니다.(자정 초기화)")
 
+    st.divider()
+    
+    # 2. 서버 에러(503 등) 발생 시 비상 복구용 버튼 (무겁게 동작)
+    st.header("🛠️ 시스템 복구")
+    st.caption("서버 오류나 화면 멈춤 현상 발생 시 눌러주세요.")
+    if st.button("🗑️ 전체 캐시 초기화 (에러 해결)", use_container_width=True, type="secondary"):
+        # 연동된 모든 캐시와 연결 객체를 완전히 파기
+        fetch_realtime_gate_info.clear()
+        load_from_sheet.clear()
+        load_file_names.clear()
+        get_spreadsheet.clear()
+        get_gspread_client.clear()
+        
+        st.session_state["toast_msg"] = "모든 캐시를 비우고 시스템 연결을 초기화했습니다!"
+        st.rerun()
 
 # ⭐⭐⭐ [핵심 최적화: 데이터 병렬 및 순차 로딩 융합] ⭐⭐⭐
 ctx = get_script_run_ctx()
