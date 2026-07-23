@@ -447,7 +447,7 @@ with st.sidebar:
         st.caption("⚠️ 잦은 업데이트 시 트래픽 허용량 초과로 기능이 정지 될 수 있습니다.(자정 초기화)")
 
 
-# ⭐⭐⭐ [핵심 최적화: 데이터 병렬 로딩] ⭐⭐⭐
+# ⭐⭐⭐ [핵심 최적화: 데이터 병렬 및 순차 로딩 융합] ⭐⭐⭐
 ctx = get_script_run_ctx()
 
 def thread_wrapper(func, *args):
@@ -455,15 +455,18 @@ def thread_wrapper(func, *args):
     add_script_run_ctx(threading.current_thread(), ctx)
     return func(*args)
 
-with st.spinner("⏳ 실시간 게이트 및 승객 데이터를 병렬로 빠르게 불러오는 중입니다..."):
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+with st.spinner("⏳ 실시간 게이트 및 승객 데이터를 불러오는 중입니다..."):
+    # 1. 응답이 오래 걸리는 외부 API(공공데이터)만 스레드에서 병렬 처리
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         future_api = executor.submit(thread_wrapper, fetch_realtime_gate_info, api_target_date_str)
-        future_pax = executor.submit(thread_wrapper, load_from_sheet, "pax_data")
-        future_files = executor.submit(thread_wrapper, load_file_names)
         
-        df_g = future_api.result()
-        saved_pax_df = future_pax.result()
-        saved_files = future_files.result()
+    # 2. 구글 API는 자원 충돌(에러)을 막기 위해 메인 스레드에서 순차적으로 호출
+    # (이미 st.cache_data가 적용되어 있어 캐싱된 경우 호출당 0.01초밖에 걸리지 않으며, 무료 할당량을 방어합니다)
+    saved_pax_df = load_from_sheet("pax_data")
+    saved_files = load_file_names()
+    
+    # 3. 병렬로 돌려둔 외부 API 결과 받아오기
+    df_g = future_api.result()
 
 
 with file_list_placeholder:
