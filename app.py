@@ -186,12 +186,6 @@ st.markdown("""
     .print-row { display: flex; flex-direction: row; gap: 15px; width: 100%; }
     .print-col { flex: 1; min-width: 0; margin-bottom: 0px !important; }
     
-    /* ⭐ 과거 데이터와 동일한 회색 깜빡임 (글자색상 포함) */
-    @keyframes blink-gray-anim {
-        0%, 100% { background-color: #F9FAFB !important; color: #6B7280 !important; }
-        50% { background-color: transparent !important; color: inherit; }
-    }
-    
     @media print {
         .no-print, header, footer, [data-testid="stSidebar"], [data-testid="stHeader"], [data-testid="stToolbar"], iframe { display: none !important; }
         html, body { height: auto !important; min-height: auto !important; padding-bottom: 0 !important; margin-bottom: 0 !important; padding-top: 0 !important; }
@@ -353,7 +347,6 @@ def format_route(val):
         
     return val
 
-# ⭐ [핵심 변경] 스트림릿 필터링 우회를 위한 동적 CSS 주입 함수
 def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_size, target_date, now_kst):
     display_title = f"{title} ({count:,}명)"
     html = f"<div class='print-col'><h3 style='text-align:center; color:{color}; font-size:16px; margin-top:2px; margin-bottom:5px;'>{display_title}</h3>"
@@ -361,17 +354,21 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
     
     df = df.sort_values('시간').reset_index(drop=True)
     
-    zone_class = "table-west" if "서편" in title else "table-east"
-    dynamic_css = ""
-    tbody_html = ""
+    html += f'<table class="merged-table" style="font-size: {font_size}px !important;"><thead><tr>'
+    html += f'<th style="width:14%; font-size:{font_size}px !important;">시간</th>'
+    html += f'<th style="width:18%; font-size:{font_size}px !important;">편명</th>'
+    html += f'<th style="font-size:{font_size}px !important;">출발지</th>'
+    html += f'<th style="width:14%; font-size:{font_size}px !important;">게이트</th>'
+    html += f'<th style="width:13%; font-size:{font_size}px !important;">승객</th>'
+    html += f'<th style="width:13%; font-size:{font_size}px !important;">합계</th>'
+    html += f'</tr></thead><tbody>'
     
     df['hour_val'] = df['시간'].astype(str).str.extract(r'^(\d{1,2})').fillna(0).astype(int)
     hour_counts = df['hour_val'].value_counts().sort_index()
     hour_sums = df.groupby('hour_val')['p_val'].sum()
     processed_hours = set()
     
-    # ⭐ 행 번호(row_idx)를 계산하면서 HTML 렌더링
-    for row_idx, (i, row) in enumerate(df.iterrows(), start=1):
+    for i, row in df.iterrows():
         current_h, flt = row['hour_val'], str(row['편명']).upper()
         row_style_css, text_style = "", ""
         
@@ -401,38 +398,20 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
                 if current_h == 16: row_style_css = "background-color: #F4FAFD;" 
                 elif current_h == 17: row_style_css = "background-color: #FFFDF0;" 
                 elif current_h == 18: row_style_css = "background-color: #FFF5F8;" 
-        
-        # ⭐ 우회 기법: 이 줄이 깜빡여야 한다면, 해당 줄만 콕 찝는 CSS를 동적으로 생성
-        if is_blinking:
-            # sum-cell(전체 승객수) 칸은 제외하고 깜빡임 효과 적용
-            dynamic_css += f".{zone_class} tbody tr:nth-child({row_idx}) td:not(.sum-cell) {{ animation: blink-gray-anim 1.5s ease-in-out infinite !important; }}\n"
+                
+        # ⭐ 자바스크립트가 인식할 수 있도록 대상 시간대 행에만 전용 속성(data-time) 부여
+        time_attr = f' data-flight-time="{row["시간"]}"' if is_blinking else ''
         
         td_style = f' style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}"'
         
-        tbody_html += f'<tr><td{td_style}>{row["시간"]}</td><td{td_style}>{row["편명"]}</td><td{td_style}>{row.get("출발지", "")}</td><td{td_style}>{row["게이트"]}</td><td{td_style}>{row["p_display"]}</td>'
+        html += f'<tr{time_attr}><td{td_style}>{row["시간"]}</td><td{td_style}>{row["편명"]}</td><td{td_style}>{row.get("출발지", "")}</td><td{td_style}>{row["게이트"]}</td><td{td_style}>{row["p_display"]}</td>'
         
         if current_h not in processed_hours:
             sum_font = font_size + 1
-            tbody_html += f'<td rowspan="{hour_counts[current_h]}" class="sum-cell" style="background-color: #ffffff !important; font-size: {sum_font}px !important; font-weight: bold !important;"><div style="position: relative; z-index: 10;">{hour_sums[current_h]:,}</div></td>'
+            html += f'<td rowspan="{hour_counts[current_h]}" class="sum-cell" style="background-color: #ffffff !important; font-size: {sum_font}px !important; font-weight: bold !important;"><div style="position: relative; z-index: 10;">{hour_sums[current_h]:,}</div></td>'
             processed_hours.add(current_h)
-        tbody_html += '</tr>'
-
-    # 동적으로 생성된 CSS를 표 바로 위에 심어줍니다.
-    if dynamic_css:
-        html += f"<style>{dynamic_css}</style>"
-        
-    html += f'<table class="merged-table {zone_class}" style="font-size: {font_size}px !important;"><thead><tr>'
-    html += f'<th style="width:14%; font-size:{font_size}px !important;">시간</th>'
-    html += f'<th style="width:18%; font-size:{font_size}px !important;">편명</th>'
-    html += f'<th style="font-size:{font_size}px !important;">출발지</th>'
-    html += f'<th style="width:14%; font-size:{font_size}px !important;">게이트</th>'
-    html += f'<th style="width:13%; font-size:{font_size}px !important;">승객</th>'
-    html += f'<th style="width:13%; font-size:{font_size}px !important;">합계</th>'
-    html += f'</tr></thead><tbody>'
-    html += tbody_html
-    html += '</tbody></table></div>'
-    
-    return html
+        html += '</tr>'
+    return html + '</tbody></table></div>'
 
 
 # --- [사이드바 설정] ---
@@ -588,6 +567,7 @@ else:
         def c_sum(c): return final[final['편명'].str.startswith(c, na=False)]['p_val'].sum()
         ke_s, oz_s, dl_s = c_sum('KE'), c_sum('OZ'), c_sum('DL')
         
+        # ⭐⭐⭐ 자바스크립트를 이용해 회색 배경(#F9FAFB)으로 완벽하게 깜빡이도록 강제 제어하는 스크립트 ⭐⭐⭐
         st.components.v1.html(
             """
             <style>
@@ -605,6 +585,32 @@ else:
             <script>
             var parentWin = window.parent;
             var parentDoc = parentWin.document;
+
+            // 1) 회색 깜빡임 애니메이션 스타일을 부모 문서 헤더에 주입
+            if (!parentDoc.getElementById('js-blink-style')) {
+                var styleEl = parentDoc.createElement('style');
+                styleEl.id = 'js-blink-style';
+                styleEl.innerHTML = `
+                    @keyframes js-gray-blink {
+                        0%, 100% { background-color: #F9FAFB !important; color: #6B7280 !important; }
+                        50% { background-color: #ffffff !important; color: #1f2937 !important; }
+                    }
+                    tr.js-blinking-row td:not(.sum-cell) {
+                        animation: js-gray-blink 1.5s ease-in-out infinite !important;
+                    }
+                `;
+                parentDoc.head.appendChild(styleEl);
+            }
+
+            // 2) 주기적으로 data-flight-time 속성을 가진 행을 찾아 깜빡임 클래스 강제 부여
+            setInterval(function() {
+                var rows = parentDoc.querySelectorAll('tr[data-flight-time]');
+                rows.forEach(function(tr) {
+                    if (!tr.classList.contains('js-blinking-row')) {
+                        tr.classList.add('js-blinking-row');
+                    }
+                });
+            }, 300);
 
             function takePic() {
                 var btn = document.getElementById('pic-btn');
