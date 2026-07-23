@@ -113,7 +113,7 @@ def clear_sheet(sheet_name):
         st.sidebar.error(f"⚠ 데이터 비우기 실패: {e}")
 
 # ⭐ [실시간 게이트 데이터 API 연동]
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
     api_key = st.secrets["api"]["service_key"]
     url = "http://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp"
@@ -187,6 +187,16 @@ st.markdown("""
     .carrier-item { font-size: 14px; font-weight: bold; }
     .print-row { display: flex; flex-direction: row; gap: 15px; width: 100%; }
     .print-col { flex: 1; min-width: 0; margin-bottom: 0px !important; }
+    
+    /* ⭐ 깜빡임 효과(Blink) 애니메이션 추가 */
+    @keyframes blink-bg {
+        0% { background-color: #ffe0e0 !important; }
+        50% { background-color: #ffffff !important; }
+        100% { background-color: #ffe0e0 !important; }
+    }
+    .blink-cell {
+        animation: blink-bg 1.5s infinite;
+    }
     
     @media print {
         .no-print, header, footer, [data-testid="stSidebar"], [data-testid="stHeader"], [data-testid="stToolbar"], iframe { display: none !important; }
@@ -372,21 +382,30 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
     
     for i, row in df.iterrows():
         current_h, flt = row['hour_val'], str(row['편명']).upper()
-        row_style_css, text_style = "", ""
+        row_style_css, text_style, class_str = "", "", ""
         
         is_past_20_mins = False
+        is_blinking = False
+        
         try:
             time_parts = str(row['시간']).split(':')
             if len(time_parts) == 2:
                 f_hour, f_min = int(time_parts[0]), int(time_parts[1])
                 flight_dt = target_date.replace(hour=f_hour, minute=f_min, second=0, microsecond=0)
+                
+                # ⭐ 20분 경과 여부 및 -10분~+10분 깜빡임 여부 체크
                 if flight_dt <= now_kst - timedelta(minutes=20):
                     is_past_20_mins = True
+                elif now_kst - timedelta(minutes=10) <= flight_dt <= now_kst + timedelta(minutes=10):
+                    is_blinking = True
         except: pass
             
         if is_past_20_mins:
             text_style = " text-decoration: line-through; color: #6B7280;"
             row_style_css = "background-color: #F9FAFB;" 
+        elif is_blinking:
+            class_str = "blink-cell"
+            # 깜빡일 때는 row_style_css를 비워 애니메이션 배경이 적용되게 함
         else:
             if opt_airline:
                 if flt.startswith("DL"): row_style_css = "background-color: #E3F2FD;" 
@@ -396,7 +415,7 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
                 elif current_h == 17: row_style_css = "background-color: #FFFDF0;" 
                 elif current_h == 18: row_style_css = "background-color: #FFF5F8;" 
                 
-        td_style = f' style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}"'
+        td_style = f' class="{class_str}" style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}"'
         
         html += f'<tr><td{td_style}>{row["시간"]}</td><td{td_style}>{row["편명"]}</td><td{td_style}>{row.get("출발지", "")}</td><td{td_style}>{row["게이트"]}</td><td{td_style}>{row["p_display"]}</td>'
         
@@ -408,7 +427,6 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
     return html + '</tbody></table></div>'
 
 
-# --- [사이드바 설정] ---
 # --- [사이드바 설정] ---
 with st.sidebar:
     file_list_placeholder = st.container()
