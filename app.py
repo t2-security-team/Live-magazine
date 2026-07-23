@@ -150,7 +150,6 @@ def fetch_realtime_gate_info(search_date_str):
         
         df = pd.DataFrame(items)
         
-        # [최적화] KE, OZ, DL 편명만 미리 필터링하여 처리 속도 및 메모리 효율성 극대화
         if not df.empty:
             df = df[df['편명'].str.startswith(('KE', 'OZ', 'DL'), na=False)]
             
@@ -158,7 +157,6 @@ def fetch_realtime_gate_info(search_date_str):
     except Exception as e:
         return pd.DataFrame()
 
-# 메시지 처리 (토스트 알림용)
 if "toast_msg" in st.session_state:
     st.toast(st.session_state["toast_msg"], icon="✅")
     del st.session_state["toast_msg"]
@@ -375,30 +373,41 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
         row_style_css, text_style = "", ""
         
         is_past_20_mins = False
+        is_blinking = False
+        
         try:
             time_parts = str(row['시간']).split(':')
             if len(time_parts) == 2:
                 f_hour, f_min = int(time_parts[0]), int(time_parts[1])
                 flight_dt = target_date.replace(hour=f_hour, minute=f_min, second=0, microsecond=0)
+                
+                # ⭐ 시간 계산 로직
                 if flight_dt <= now_kst - timedelta(minutes=20):
                     is_past_20_mins = True
+                elif now_kst - timedelta(minutes=10) <= flight_dt <= now_kst + timedelta(minutes=10):
+                    is_blinking = True
         except: pass
             
+        # 기존 항공사 색상/시간대 색상 적용 (JS 깜빡임이 안 먹히더라도 기본 색상은 남도록)
+        if opt_airline:
+            if flt.startswith("DL"): row_style_css = "background-color: #E3F2FD;" 
+            elif flt.startswith("OZ"): row_style_css = "background-color: #FDF4F7;" 
+        elif opt_peak:
+            if current_h == 16: row_style_css = "background-color: #F4FAFD;" 
+            elif current_h == 17: row_style_css = "background-color: #FFFDF0;" 
+            elif current_h == 18: row_style_css = "background-color: #FFF5F8;" 
+                
+        # 취소선 처리
         if is_past_20_mins:
             text_style = " text-decoration: line-through; color: #6B7280;"
             row_style_css = "background-color: #F9FAFB;" 
-        else:
-            if opt_airline:
-                if flt.startswith("DL"): row_style_css = "background-color: #E3F2FD;" 
-                elif flt.startswith("OZ"): row_style_css = "background-color: #FDF4F7;" 
-            elif opt_peak:
-                if current_h == 16: row_style_css = "background-color: #F4FAFD;" 
-                elif current_h == 17: row_style_css = "background-color: #FFFDF0;" 
-                elif current_h == 18: row_style_css = "background-color: #FFF5F8;" 
-                
+        
+        # ⭐ Streamlit의 필터링을 완벽 우회하기 위한 꼼수(숨겨진 마커 삽입)
+        marker = '<span class="blink-marker" style="display:none;"></span>' if is_blinking else ''
+        
         td_style = f' style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}"'
         
-        html += f'<tr><td{td_style}>{row["시간"]}</td><td{td_style}>{row["편명"]}</td><td{td_style}>{row.get("출발지", "")}</td><td{td_style}>{row["게이트"]}</td><td{td_style}>{row["p_display"]}</td>'
+        html += f'<tr><td{td_style}>{row["시간"]}{marker}</td><td{td_style}>{row["편명"]}</td><td{td_style}>{row.get("출발지", "")}</td><td{td_style}>{row["게이트"]}</td><td{td_style}>{row["p_display"]}</td>'
         
         if current_h not in processed_hours:
             sum_font = font_size + 1
@@ -408,7 +417,6 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
     return html + '</tbody></table></div>'
 
 
-# --- [사이드바 설정] ---
 # --- [사이드바 설정] ---
 with st.sidebar:
     file_list_placeholder = st.container()
@@ -434,10 +442,9 @@ with st.sidebar:
     
     st.divider()
 
-    # 1. 일상적인 게이트 갱신용 버튼 (가볍게 동작)
     st.header("🔄 실시간 업데이트")
     if st.button("🔄 업데이트하기", use_container_width=True):
-        fetch_realtime_gate_info.clear() # 공공데이터(게이트) 캐시만 지움
+        fetch_realtime_gate_info.clear()
         st.session_state["toast_msg"] = "게이트 정보를 최신 상태로 업데이트했습니다!"
         KST = timezone(timedelta(hours=9))
         st.session_state["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
@@ -449,11 +456,9 @@ with st.sidebar:
 
     st.divider()
     
-    # 2. 서버 에러(503 등) 발생 시 비상 복구용 버튼 (무겁게 동작)
     st.header("🛠️ 시스템 복구")
     st.caption("에러코드 발생 시 눌러주세요.")
     if st.button("🗑️ 전체 캐시 초기화", use_container_width=True, type="secondary"):
-        # 연동된 모든 캐시와 연결 객체를 완전히 파기
         fetch_realtime_gate_info.clear()
         load_from_sheet.clear()
         load_file_names.clear()
@@ -463,24 +468,18 @@ with st.sidebar:
         st.session_state["toast_msg"] = "모든 캐시를 비우고 시스템 연결을 초기화했습니다!"
         st.rerun()
 
-# ⭐⭐⭐ [핵심 최적화: 데이터 병렬 및 순차 로딩 융합] ⭐⭐⭐
 ctx = get_script_run_ctx()
 
 def thread_wrapper(func, *args):
-    """스레드 환경에서도 Streamlit 기능이 정상 작동하도록 컨텍스트를 연결하는 래퍼 함수"""
     add_script_run_ctx(threading.current_thread(), ctx)
     return func(*args)
 
 with st.spinner("⏳ 실시간 게이트 및 승객 데이터를 불러오는 중입니다..."):
-    # 1. 응답이 오래 걸리는 외부 API(공공데이터)만 스레드에서 병렬 처리
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         future_api = executor.submit(thread_wrapper, fetch_realtime_gate_info, api_target_date_str)
         
-    # 2. 구글 API는 자원 충돌(에러)을 막기 위해 메인 스레드에서 순차적으로 호출
     saved_pax_df = load_from_sheet("pax_data")
     saved_files = load_file_names()
-    
-    # 3. 병렬로 돌려둔 외부 API 결과 받아오기
     df_g = future_api.result()
 
 with file_list_placeholder:
@@ -571,6 +570,7 @@ else:
         def c_sum(c): return final[final['편명'].str.startswith(c, na=False)]['p_val'].sum()
         ke_s, oz_s, dl_s = c_sum('KE'), c_sum('OZ'), c_sum('DL')
         
+        # ⭐⭐⭐ JS를 통해 부모 창에 직접 CSS 애니메이션을 강제로 심는 스크립트 ⭐⭐⭐
         st.components.v1.html(
             """
             <style>
@@ -586,24 +586,53 @@ else:
             <button class="custom-btn" onclick="takePic()" id="pic-btn">📸 전체 사진으로 저장</button>
             
             <script>
+            var parentWin = window.parent;
+            var parentDoc = parentWin.document;
+
+            // 1) Streamlit 필터링을 우회하여 깜빡임 애니메이션을 직접 주입
+            if (!parentDoc.getElementById('blink-style-override')) {
+                var styleEl = parentDoc.createElement('style');
+                styleEl.id = 'blink-style-override';
+                styleEl.innerHTML = `
+                    @keyframes super-blink-bg {
+                        0%, 100% { background-color: #ffcccc !important; color: #b91c1c !important; }
+                        50% { background-color: #ffffff !important; color: #1f2937 !important; }
+                    }
+                    /* 합계(sum-cell)는 깜빡이지 않도록 제외 */
+                    tr.super-blink td:not(.sum-cell) {
+                        animation: super-blink-bg 1.2s ease-in-out infinite !important;
+                    }
+                `;
+                parentDoc.head.appendChild(styleEl);
+            }
+
+            // 2) 0.3초마다 마커(.blink-marker)를 찾아서 해당 줄(tr)에 애니메이션 클래스 적용
+            setInterval(function() {
+                var markers = parentDoc.querySelectorAll('.blink-marker');
+                markers.forEach(function(marker) {
+                    var tr = marker.closest('tr');
+                    if (tr && !tr.classList.contains('super-blink')) {
+                        tr.classList.add('super-blink');
+                    }
+                });
+            }, 300);
+
+            // 3) 사진 캡처 스크립트
             function takePic() {
                 var btn = document.getElementById('pic-btn');
                 btn.innerText = "⏳ 캡처 중... 잠시만요!";
                 try {
-                    var win = window.parent;
-                    var doc = win.document;
-                    
-                    if (!win.html2canvas) {
-                        var script = doc.createElement('script');
+                    if (!parentWin.html2canvas) {
+                        var script = parentDoc.createElement('script');
                         script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-                        script.onload = function() { doCap(win, doc, btn); };
+                        script.onload = function() { doCap(parentWin, parentDoc, btn); };
                         script.onerror = function() { 
                             alert("⚠ 라이브러리를 불러올 수 없습니다."); 
                             btn.innerText = "📸 전체 사진으로 저장"; 
                         };
-                        doc.head.appendChild(script);
+                        parentDoc.head.appendChild(script);
                     } else {
-                        doCap(win, doc, btn);
+                        doCap(parentWin, parentDoc, btn);
                     }
                 } catch(e) {
                     alert("⚠ 브라우저 보안 설정으로 인해 캡처가 차단되었습니다.");
@@ -659,11 +688,8 @@ else:
                     });
                 }, 800);
             }
-            
-            // --- [스크롤 위치 유지 기능] ---
-            var parentWin = window.parent;
-            var parentDoc = parentWin.document;
 
+            // 4) 스크롤 유지 스크립트
             function doScrollLogic() {
                 var scrollContainer = parentDoc.querySelector('.main') || parentWin;
                 var savedScroll = parentWin.sessionStorage.getItem('stScrollPos');
@@ -674,10 +700,8 @@ else:
                 }
             }
 
-            // 페이지 렌더링 후 스크롤 로직 실행
             setTimeout(doScrollLogic, 400);
 
-            // 매초마다 현재 화면의 스크롤 위치를 지속적으로 저장 (자동 갱신 시 튕김 방지)
             setInterval(function() {
                 var scrollContainer = parentDoc.querySelector('.main') || parentWin;
                 var scrollTop = scrollContainer.scrollTop || parentWin.scrollY || 0;
