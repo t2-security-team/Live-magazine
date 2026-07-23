@@ -150,7 +150,6 @@ def fetch_realtime_gate_info(search_date_str):
         
         df = pd.DataFrame(items)
         
-        # [최적화] KE, OZ, DL 편명만 미리 필터링하여 처리 속도 및 메모리 효율성 극대화
         if not df.empty:
             df = df[df['편명'].str.startswith(('KE', 'OZ', 'DL'), na=False)]
             
@@ -158,7 +157,6 @@ def fetch_realtime_gate_info(search_date_str):
     except Exception as e:
         return pd.DataFrame()
 
-# 메시지 처리 (토스트 알림용)
 if "toast_msg" in st.session_state:
     st.toast(st.session_state["toast_msg"], icon="✅")
     del st.session_state["toast_msg"]
@@ -188,14 +186,10 @@ st.markdown("""
     .print-row { display: flex; flex-direction: row; gap: 15px; width: 100%; }
     .print-col { flex: 1; min-width: 0; margin-bottom: 0px !important; }
     
-    /* ⭐ 깜빡임 효과(Blink) 애니메이션 추가 */
+    /* ⭐ 개선된 깜빡임 효과(Blink) 애니메이션 (배경색 충돌 방지) */
     @keyframes blink-bg {
-        0% { background-color: #ffe0e0 !important; }
-        50% { background-color: #ffffff !important; }
-        100% { background-color: #ffe0e0 !important; }
-    }
-    .blink-cell {
-        animation: blink-bg 1.5s infinite;
+        0%, 100% { background-color: #ffcccc !important; }
+        50% { background-color: transparent !important; }
     }
     
     @media print {
@@ -382,7 +376,7 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
     
     for i, row in df.iterrows():
         current_h, flt = row['hour_val'], str(row['편명']).upper()
-        row_style_css, text_style, class_str = "", "", ""
+        row_style_css, text_style = "", ""
         
         is_past_20_mins = False
         is_blinking = False
@@ -404,8 +398,8 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
             text_style = " text-decoration: line-through; color: #6B7280;"
             row_style_css = "background-color: #F9FAFB;" 
         elif is_blinking:
-            class_str = "blink-cell"
-            # 깜빡일 때는 row_style_css를 비워 애니메이션 배경이 적용되게 함
+            # ⭐ Streamlit class 필터링 방지: style에 직접 애니메이션 주입
+            row_style_css = "animation: blink-bg 1.5s infinite;"
         else:
             if opt_airline:
                 if flt.startswith("DL"): row_style_css = "background-color: #E3F2FD;" 
@@ -415,7 +409,8 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
                 elif current_h == 17: row_style_css = "background-color: #FFFDF0;" 
                 elif current_h == 18: row_style_css = "background-color: #FFF5F8;" 
                 
-        td_style = f' class="{class_str}" style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}"'
+        # HTML 태그 렌더링
+        td_style = f' style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}"'
         
         html += f'<tr><td{td_style}>{row["시간"]}</td><td{td_style}>{row["편명"]}</td><td{td_style}>{row.get("출발지", "")}</td><td{td_style}>{row["게이트"]}</td><td{td_style}>{row["p_display"]}</td>'
         
@@ -452,10 +447,9 @@ with st.sidebar:
     
     st.divider()
 
-    # 1. 일상적인 게이트 갱신용 버튼 (가볍게 동작)
     st.header("🔄 실시간 업데이트")
     if st.button("🔄 업데이트하기", use_container_width=True):
-        fetch_realtime_gate_info.clear() # 공공데이터(게이트) 캐시만 지움
+        fetch_realtime_gate_info.clear()
         st.session_state["toast_msg"] = "게이트 정보를 최신 상태로 업데이트했습니다!"
         KST = timezone(timedelta(hours=9))
         st.session_state["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
@@ -467,11 +461,9 @@ with st.sidebar:
 
     st.divider()
     
-    # 2. 서버 에러(503 등) 발생 시 비상 복구용 버튼 (무겁게 동작)
     st.header("🛠️ 시스템 복구")
     st.caption("에러코드 발생 시 눌러주세요.")
     if st.button("🗑️ 전체 캐시 초기화", use_container_width=True, type="secondary"):
-        # 연동된 모든 캐시와 연결 객체를 완전히 파기
         fetch_realtime_gate_info.clear()
         load_from_sheet.clear()
         load_file_names.clear()
@@ -481,24 +473,18 @@ with st.sidebar:
         st.session_state["toast_msg"] = "모든 캐시를 비우고 시스템 연결을 초기화했습니다!"
         st.rerun()
 
-# ⭐⭐⭐ [핵심 최적화: 데이터 병렬 및 순차 로딩 융합] ⭐⭐⭐
 ctx = get_script_run_ctx()
 
 def thread_wrapper(func, *args):
-    """스레드 환경에서도 Streamlit 기능이 정상 작동하도록 컨텍스트를 연결하는 래퍼 함수"""
     add_script_run_ctx(threading.current_thread(), ctx)
     return func(*args)
 
 with st.spinner("⏳ 실시간 게이트 및 승객 데이터를 불러오는 중입니다..."):
-    # 1. 응답이 오래 걸리는 외부 API(공공데이터)만 스레드에서 병렬 처리
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         future_api = executor.submit(thread_wrapper, fetch_realtime_gate_info, api_target_date_str)
         
-    # 2. 구글 API는 자원 충돌(에러)을 막기 위해 메인 스레드에서 순차적으로 호출
     saved_pax_df = load_from_sheet("pax_data")
     saved_files = load_file_names()
-    
-    # 3. 병렬로 돌려둔 외부 API 결과 받아오기
     df_g = future_api.result()
 
 with file_list_placeholder:
@@ -678,7 +664,6 @@ else:
                 }, 800);
             }
             
-            // --- [스크롤 위치 유지 기능] ---
             var parentWin = window.parent;
             var parentDoc = parentWin.document;
 
@@ -692,10 +677,8 @@ else:
                 }
             }
 
-            // 페이지 렌더링 후 스크롤 로직 실행
             setTimeout(doScrollLogic, 400);
 
-            // 매초마다 현재 화면의 스크롤 위치를 지속적으로 저장 (자동 갱신 시 튕김 방지)
             setInterval(function() {
                 var scrollContainer = parentDoc.querySelector('.main') || parentWin;
                 var scrollTop = scrollContainer.scrollTop || parentWin.scrollY || 0;
