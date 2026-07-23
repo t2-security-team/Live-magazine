@@ -692,7 +692,7 @@ else:
         
         st.markdown(f'<div class="print-row">{e_html}{w_html}</div>', unsafe_allow_html=True)
     else:
-        st.warning(f"⚠ 업로드한 승객 파일과 일치하는 {display_date_str} 실시간 도착편 정보가 없습니다.")import streamlit as st
+        st.warning(f"⚠ 업로드한 승객 파일과 일치하는 {display_date_str} 실시간 도착편 정보가 없습니다.")
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
