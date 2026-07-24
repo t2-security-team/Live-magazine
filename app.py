@@ -118,7 +118,7 @@ def fetch_realtime_gate_info(search_date_str):
     api_key = st.secrets["api"]["service_key"]
     url = "http://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp"
     
-    req_url = f"{url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=json&numOfRows=6000&pageNo=1"
+    req_url = f"{url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=json&numOfRows=3000&pageNo=1"
     
     try:
         response = requests.get(req_url, timeout=15)
@@ -570,7 +570,7 @@ else:
         def c_sum(c): return final[final['편명'].str.startswith(c, na=False)]['p_val'].sum()
         ke_s, oz_s, dl_s = c_sum('KE'), c_sum('OZ'), c_sum('DL')
         
-        # ⭐⭐⭐ 60초 자동 새로고침(시간 실시간 갱신) 적용 스크립트 ⭐⭐⭐
+        # ⭐⭐⭐ 5분 자동 새로고침(시간 실시간 갱신) 적용 스크립트 ⭐⭐⭐
         st.components.v1.html(
             """
             <style>
@@ -589,10 +589,10 @@ else:
             var parentWin = window.parent;
             var parentDoc = parentWin.document;
 
-            // ⭐ 60초마다 자동으로 새로고침하여 현재 시간(-10~+10분)을 실시간으로 반영 (스크롤 위치 유지)
+            // ⭐ 5분마다 자동으로 새로고침하여 현재 시간(-10~+10분)을 실시간으로 반영 (스크롤 위치 유지)
             setTimeout(function() {
                 parentWin.location.reload();
-            }, 60000);
+            }, 300000);
 
             function takePic() {
                 var btn = document.getElementById('pic-btn');
