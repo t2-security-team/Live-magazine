@@ -440,7 +440,13 @@ with st.sidebar:
     opt_peak = (vis_option == "⏰ 첨두시간 색상 표시 (16~18시)")
     opt_incoming = (vis_option == "곧 들어오는 비행기 표시 (연보라색)")
     
-    time_range = st.slider("조회 시간대 (시)", 0, 24, (0, 24))
+    # ⭐ 동적 시간대 기본값 설정 로직 추가
+    current_hour = datetime.now(KST).hour
+    # 오늘이면 (현재시간-1), 내일이면 0시를 시작점으로 설정 (음수 방지를 위해 max 사용)
+    default_start_hour = max(0, current_hour - 1) if date_option == "오늘" else 0
+    
+    # 슬라이더의 기본값을 (default_start_hour, 24)로 변경
+    time_range = st.slider("조회 시간대 (시)", 0, 24, (default_start_hour, 24))
     base_font_size = st.slider("🔠 표 글자 조절 (px)", min_value=10, max_value=17, value=12, step=1)
     
     st.divider()
