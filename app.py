@@ -347,7 +347,7 @@ def format_route(val):
         
     return val
 
-def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_size, target_date, now_kst):
+def generate_table_html(df, title, count, color, font_size, target_date, now_kst):
     display_title = f"{title} ({count:,}명)"
     html = f"<div class='print-col'><h3 style='text-align:center; color:{color}; font-size:16px; margin-top:2px; margin-bottom:5px;'>{display_title}</h3>"
     if df.empty: return html + "<div style='text-align:center; padding:20px; border:1px solid #ddd;'>데이터 없음</div></div>"
@@ -369,11 +369,11 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
     processed_hours = set()
     
     for i, row in df.iterrows():
-        current_h, flt = row['hour_val'], str(row['편명']).upper()
+        current_h = row['hour_val']
         row_style_css, text_style = "", ""
         
         is_past_20_mins = False
-        is_blinking = False
+        is_incoming = False
         
         try:
             time_parts = str(row['시간']).split(':')
@@ -381,27 +381,22 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
                 f_hour, f_min = int(time_parts[0]), int(time_parts[1])
                 flight_dt = target_date.replace(hour=f_hour, minute=f_min, second=0, microsecond=0)
                 
-                # ⭐ 현재 시간 기준 -10분 ~ +10분 체크
+                # ⭐ 20분 경과 여부 및 현재 시간 기준 -10분 ~ +10분(곧 들어오는 비행기) 체크
                 if flight_dt <= now_kst - timedelta(minutes=20):
                     is_past_20_mins = True
                 elif now_kst - timedelta(minutes=10) <= flight_dt <= now_kst + timedelta(minutes=10):
-                    is_blinking = True
+                    is_incoming = True
         except: pass
             
         if is_past_20_mins:
             text_style = " text-decoration: line-through; color: #6B7280;"
             row_style_css = "background-color: #F9FAFB;" 
-        elif is_blinking:
-            # ⭐ 요청하신 지나간 행과 동일한 회색 배경(#F9FAFB)에 눈에 띄는 파란색 테두리 강조 적용 (100% 안전한 인라인 스타일)
-            row_style_css = "background-color: #F9FAFB; border-left: 4px solid #2563EB;"
+        elif is_incoming:
+            # ⭐ 곧 들어오는 비행기: 연보라색 배경 (#EDE9FE)
+            row_style_css = "background-color: #EDE9FE;"
         else:
-            if opt_airline:
-                if flt.startswith("DL"): row_style_css = "background-color: #E3F2FD;" 
-                elif flt.startswith("OZ"): row_style_css = "background-color: #FDF4F7;" 
-            elif opt_peak:
-                if current_h == 16: row_style_css = "background-color: #F4FAFD;" 
-                elif current_h == 17: row_style_css = "background-color: #FFFDF0;" 
-                elif current_h == 18: row_style_css = "background-color: #FFF5F8;" 
+            # 기본 배경: 하얀색 (시각화 옵션 제거)
+            row_style_css = "background-color: #ffffff;"
                 
         td_style = f' style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}"'
         
@@ -431,9 +426,7 @@ with st.sidebar:
     
     st.divider()
     
-    vis_option = st.radio("🎨 시각화 옵션", ["✈ 항공사별 색상 표시 (DL, OZ)", "⏰ 첨두시간 색상 표시 (16~18시)", "적용 안 함"], index=0)
-    opt_airline = (vis_option == "✈ 항공사별 색상 표시 (DL, OZ)")
-    opt_peak = (vis_option == "⏰ 첨두시간 색상 표시 (16~18시)")
+    # ⭐ 시각화 옵션 제거 (기본 하얀 배경 + 곧 들어오는 비행기 연보라색 고정)
     
     time_range = st.slider("조회 시간대 (시)", 0, 24, (0, 24))
     base_font_size = st.slider("🔠 표 글자 조절 (px)", min_value=10, max_value=17, value=12, step=1)
@@ -702,8 +695,8 @@ else:
         west_p = final[final['구역'] == '서편']['p_val'].sum()
         east_p = final[final['구역'] == '동편']['p_val'].sum()
         
-        w_html = generate_table_html(final[final['구역'] == '서편'], "⬅ 서편", west_p, "#DC2626", opt_airline, opt_peak, base_font_size, target_date, today_date)
-        e_html = generate_table_html(final[final['구역'] == '동편'], "➡ 동편", east_p, "#2563EB", opt_airline, opt_peak, base_font_size, target_date, today_date)
+        w_html = generate_table_html(final[final['구역'] == '서편'], "⬅ 서편", west_p, "#DC2626", base_font_size, target_date, today_date)
+        e_html = generate_table_html(final[final['구역'] == '동편'], "➡ 동편", east_p, "#2563EB", base_font_size, target_date, today_date)
         
         st.markdown(f'<div class="print-row">{e_html}{w_html}</div>', unsafe_allow_html=True)
     else:
