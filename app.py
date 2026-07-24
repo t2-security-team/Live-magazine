@@ -1,25 +1,21 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import gspread
 from google.oauth2.service_account import Credentials
 import re
 import io
 import requests
 from datetime import datetime, timedelta, timezone
-
-# ⭐ 병렬 처리를 위한 라이브러리 추가
 import concurrent.futures
 import threading
 from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 
-# 1. 페이지 설정 (UI 렌더링이 가장 먼저 되도록 최상단 유지)
 st.set_page_config(page_title="T2 보안검색 환승부 잡지", layout="wide")
 
-# 앱 최초 실행 시 마지막 업데이트 시간 초기화
 if "last_updated" not in st.session_state:
     st.session_state["last_updated"] = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
 
-# ⭐ [구글 시트 연동 설정]
 SHEET_NAME = "보안검색_데이터_공유"
 
 @st.cache_resource(show_spinner=False)
@@ -71,7 +67,7 @@ def append_file_names(new_names):
     except Exception as e:
         st.sidebar.error(f"⚠ 파일 목록 저장 실패: {e}")
 
-# [최적화] 병렬 처리 시 스피너 충돌을 막기 위해 개별 show_spinner는 False로 설정
+# ⭐ [트래픽 방어] 구글 API는 30분(1800초) 동안 캐시 유지 (요청 최소화)
 @st.cache_data(ttl=1800, show_spinner=False)
 def load_file_names():
     try:
@@ -86,6 +82,7 @@ def load_file_names():
         st.sidebar.error(f"⚠ 파일 목록 불러오기 실패: {e}")
     return []
 
+# ⭐ [트래픽 방어] 구글 API는 30분(1800초) 동안 캐시 유지 (요청 최소화)
 @st.cache_data(ttl=1800, show_spinner=False)
 def load_from_sheet(sheet_name):
     try:
@@ -112,8 +109,8 @@ def clear_sheet(sheet_name):
     except Exception as e:
         st.sidebar.error(f"⚠ 데이터 비우기 실패: {e}")
 
-# ⭐ [실시간 게이트 데이터 API 연동]
-@st.cache_data(ttl=1800, show_spinner=False)
+# ⭐ 여유가 많은 공항 API만 5분(300초) 마다 실시간 갱신
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
     try:
         api_key = st.secrets["api"]["service_key"]
@@ -156,7 +153,6 @@ def fetch_realtime_gate_info(search_date_str):
             
         return df
     except Exception as e:
-        # 에러 발생 시 원인을 사이드바에 출력하여 디버깅 용이하게 함
         st.sidebar.error(f"⚠ API 데이터 불러오기 예외 발생: {e}")
         return pd.DataFrame()
 
@@ -164,7 +160,6 @@ if "toast_msg" in st.session_state:
     st.toast(st.session_state["toast_msg"], icon="✅")
     del st.session_state["toast_msg"]
 
-# --- [디자인 CSS] ---
 st.markdown("""
     <style>
     .main .block-container { padding-top: 0px !important; padding-bottom: 0px !important; margin-top: -15px !important; }
@@ -205,109 +200,12 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- [도구함 (데이터 처리 로직)] ---
 def clean_flight_no(val):
     if pd.isna(val): return ""
     val = str(val).strip().replace(" ", "").upper()
     match = re.match(r'([A-Z]+)(\d+)', val)
     if match: return f"{match.group(1)}{int(match.group(2)):03d}"
     return val
-
-def smart_read(file):
-    filename = file.name.lower()
-    df = None
-    try:
-        if filename.endswith('.csv'):
-            encodings = ['utf-8', 'cp949', 'euc-kr', 'utf-16', 'utf-8-sig']
-            for enc in encodings:
-                try:
-                    file.seek(0)
-                    df = pd.read_csv(file, encoding=enc)
-                    break
-                except: pass
-        elif filename.endswith('.xls'):
-            try:
-                file.seek(0)
-                df = pd.read_excel(file, engine='xlrd')
-            except:
-                try:
-                    file.seek(0)
-                    raw_data = file.read()
-                    for enc in ['cp949', 'euc-kr', 'utf-8']:
-                        try:
-                            html_str = raw_data.decode(enc)
-                            dfs = pd.read_html(io.StringIO(html_str))
-                            if dfs: 
-                                df = dfs[0]
-                                break
-                        except: pass
-                except: pass
-        else:
-            file.seek(0)
-            df = pd.read_excel(file, engine='openpyxl')
-    except:
-        try:
-            file.seek(0)
-            df = pd.read_excel(file)
-        except: return None
-        
-    if df is None or df.empty: return None
-    all_data = [df.columns.tolist()] + df.values.tolist()
-    header_idx = -1
-    for i, row in enumerate(all_data[:20]):
-        row_str = "".join([str(x).upper() for x in row])
-        if 'FLT' in row_str or '편명' in row_str or 'FLIGHT' in row_str:
-            header_idx = i
-            break
-            
-    if header_idx > 0:
-        new_header = all_data[header_idx]
-        new_data = all_data[header_idx+1:]
-        df = pd.DataFrame(new_data, columns=new_header)
-        
-    df.columns = [str(c) if pd.notna(c) else f"Unnamed_{i}" for i, c in enumerate(df.columns)]
-    return df
-
-def parse_dl_pax(df):
-    if df is None or df.empty: return None
-    all_rows = [df.columns.tolist()] + df.values.tolist()
-    pax_row_idx = -1
-    pax_row_data = []
-    header_row_data = []
-    
-    for i, row in enumerate(all_rows):
-        for cell in row:
-            if str(cell).replace(" ", "").strip() == '환승객':
-                pax_row_idx = i
-                pax_row_data = row
-                break
-        if pax_row_idx != -1: break
-        
-    if pax_row_idx != -1:
-        header_row_data = all_rows[0]
-        dl_data = []
-        for col_idx, cell in enumerate(header_row_data):
-            cell_str = str(cell)
-            if 'DL' in cell_str.upper() and re.search(r'DL\s*\d+', cell_str, re.IGNORECASE):
-                flt_no = re.search(r'(DL\s*\d+)', cell_str, re.IGNORECASE).group(1).replace(" ", "").upper()
-                flt_no = clean_flight_no(flt_no) 
-                
-                if col_idx < len(pax_row_data):
-                    pax_val = str(pax_row_data[col_idx]).replace(",", "").strip()
-                    try:
-                        pax_count = int(float(pax_val))
-                        dl_data.append({'편명': flt_no, '승객수': pax_count})
-                    except: pass
-        if dl_data: return pd.DataFrame(dl_data)
-    return None
-
-def find_col(df, keywords):
-    if df is None or df.empty: return None
-    for col in df.columns:
-        clean_col = str(col).replace(" ", "").replace("/", "").replace("_", "").replace(".", "").upper()
-        for key in keywords:
-            if key.upper() in clean_col: return col
-    return None
 
 IATA_CITY_MAP = {
     "LIS": "리스본", "HFE": "허페이", "KUH": "쿠시로", "KIX": "오사카", "NRT": "나리타", "HKG": "홍콩", 
@@ -352,27 +250,32 @@ def format_route(val):
 
 def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_incoming, font_size, target_date, now_kst):
     display_title = f"{title} ({count:,}명)"
-    html = f"<div class='print-col'><h3 style='text-align:center; color:{color}; font-size:16px; margin-top:2px; margin-bottom:5px;'>{display_title}</h3>"
-    if df.empty: return html + "<div style='text-align:center; padding:20px; border:1px solid #ddd;'>데이터 없음</div></div>"
+    html_parts = [f"<div class='print-col'><h3 style='text-align:center; color:{color}; font-size:16px; margin-top:2px; margin-bottom:5px;'>{display_title}</h3>"]
+    
+    if df.empty: 
+        html_parts.append("<div style='text-align:center; padding:20px; border:1px solid #ddd;'>데이터 없음</div></div>")
+        return "".join(html_parts)
     
     df = df.sort_values('시간').reset_index(drop=True)
     
-    html += f'<table class="merged-table" style="font-size: {font_size}px !important;"><thead><tr>'
-    html += f'<th style="width:14%; font-size:{font_size}px !important;">시간</th>'
-    html += f'<th style="width:18%; font-size:{font_size}px !important;">편명</th>'
-    html += f'<th style="font-size:{font_size}px !important;">출발지</th>'
-    html += f'<th style="width:14%; font-size:{font_size}px !important;">게이트</th>'
-    html += f'<th style="width:13%; font-size:{font_size}px !important;">승객</th>'
-    html += f'<th style="width:13%; font-size:{font_size}px !important;">합계</th>'
-    html += f'</tr></thead><tbody>'
+    html_parts.append(f'<table class="merged-table" style="font-size: {font_size}px !important;"><thead><tr>')
+    html_parts.append(f'<th style="width:14%; font-size:{font_size}px !important;">시간</th>')
+    html_parts.append(f'<th style="width:18%; font-size:{font_size}px !important;">편명</th>')
+    html_parts.append(f'<th style="font-size:{font_size}px !important;">출발지</th>')
+    html_parts.append(f'<th style="width:14%; font-size:{font_size}px !important;">게이트</th>')
+    html_parts.append(f'<th style="width:13%; font-size:{font_size}px !important;">승객</th>')
+    html_parts.append(f'<th style="width:13%; font-size:{font_size}px !important;">합계</th>')
+    html_parts.append('</tr></thead><tbody>')
     
     df['hour_val'] = df['시간'].astype(str).str.extract(r'^(\d{1,2})').fillna(0).astype(int)
     hour_counts = df['hour_val'].value_counts().sort_index()
     hour_sums = df.groupby('hour_val')['p_val'].sum()
     processed_hours = set()
     
-    for i, row in df.iterrows():
-        current_h, flt = row['hour_val'], str(row['편명']).upper()
+    records = df.to_dict('records')
+    for row in records:
+        current_h = row['hour_val']
+        flt = str(row['편명']).upper()
         row_style_css, text_style = "", ""
         
         is_past_20_mins = False
@@ -408,17 +311,18 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
                 
         td_style = f' style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}"'
         
-        html += f'<tr><td{td_style}>{row["시간"]}</td><td{td_style}>{row["편명"]}</td><td{td_style}>{row.get("출발지", "")}</td><td{td_style}>{row["게이트"]}</td><td{td_style}>{row["p_display"]}</td>'
+        출발지_val = row.get("출발지", "")
+        html_parts.append(f'<tr><td{td_style}>{row["시간"]}</td><td{td_style}>{row["편명"]}</td><td{td_style}>{출발지_val}</td><td{td_style}>{row["게이트"]}</td><td{td_style}>{row.get("p_display", "")}</td>')
         
         if current_h not in processed_hours:
             sum_font = font_size + 1
-            html += f'<td rowspan="{hour_counts[current_h]}" class="sum-cell" style="background-color: #ffffff !important; font-size: {sum_font}px !important; font-weight: bold !important;"><div style="position: relative; z-index: 10;">{hour_sums[current_h]:,}</div></td>'
+            html_parts.append(f'<td rowspan="{hour_counts[current_h]}" class="sum-cell" style="background-color: #ffffff !important; font-size: {sum_font}px !important; font-weight: bold !important;"><div style="position: relative; z-index: 10;">{hour_sums[current_h]:,}</div></td>')
             processed_hours.add(current_h)
-        html += '</tr>'
-    return html + '</tbody></table></div>'
+        html_parts.append('</tr>')
+        
+    html_parts.append('</tbody></table></div>')
+    return "".join(html_parts)
 
-
-# --- [사이드바 설정] ---
 with st.sidebar:
     file_list_placeholder = st.container()
     st.divider()
@@ -434,18 +338,14 @@ with st.sidebar:
     
     st.divider()
     
-    # ⭐ 시각화 옵션 복원 (선택 가능)
     vis_option = st.radio("🎨 시각화 옵션", ["✈ 항공사별 색상 표시 (DL, OZ)", "⏰ 첨두시간 색상 표시 (16~18시)", "곧 들어오는 비행기 표시 (연보라색)", "적용 안 함"], index=2)
     opt_airline = (vis_option == "✈ 항공사별 색상 표시 (DL, OZ)")
     opt_peak = (vis_option == "⏰ 첨두시간 색상 표시 (16~18시)")
     opt_incoming = (vis_option == "곧 들어오는 비행기 표시 (연보라색)")
     
-    # ⭐ 동적 시간대 기본값 설정 로직 추가
     current_hour = datetime.now(KST).hour
-    # 오늘이면 (현재시간-1), 내일이면 0시를 시작점으로 설정 (음수 방지를 위해 max 사용)
     default_start_hour = max(0, current_hour - 1) if date_option == "오늘" else 0
     
-    # 슬라이더의 기본값을 (default_start_hour, 24)로 변경
     time_range = st.slider("조회 시간대 (시)", 0, 24, (default_start_hour, 24))
     base_font_size = st.slider("🔠 표 글자 조절 (px)", min_value=10, max_value=17, value=12, step=1)
     
@@ -484,12 +384,14 @@ def thread_wrapper(func, *args):
     return func(*args)
 
 with st.spinner("⏳ 실시간 게이트 및 승객 데이터를 불러오는 중입니다..."):
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
         future_api = executor.submit(thread_wrapper, fetch_realtime_gate_info, api_target_date_str)
+        future_pax = executor.submit(thread_wrapper, load_from_sheet, "pax_data")
+        future_files = executor.submit(thread_wrapper, load_file_names)
         
-    saved_pax_df = load_from_sheet("pax_data")
-    saved_files = load_file_names()
-    df_g = future_api.result()
+        df_g = future_api.result()
+        saved_pax_df = future_pax.result()
+        saved_files = future_files.result()
 
 with file_list_placeholder:
     if not saved_pax_df.empty:
@@ -507,7 +409,6 @@ st.markdown(f"""
     </style>
 """, unsafe_allow_html=True)
 
-# --- [메인 로직] ---
 p_all = []
 if not saved_pax_df.empty:
     p_all.append(saved_pax_df)
@@ -529,10 +430,8 @@ else:
     final = pd.merge(df_g, df_p, on='편명', how='inner', suffixes=('_api', '_pax'))
     
     if '출발지_pax' in final.columns:
-        final['출발지'] = final.apply(
-            lambda row: row['출발지_api'] if pd.isna(row['출발지_pax']) or str(row['출발지_pax']).strip() == '' else row['출발지_pax'], 
-            axis=1
-        )
+        cond_empty = final['출발지_pax'].isna() | (final['출발지_pax'].astype(str).str.strip() == '')
+        final['출발지'] = np.where(cond_empty, final['출발지_api'], final['출발지_pax'])
     else:
         final['출발지'] = final['출발지_api']
         
@@ -559,27 +458,22 @@ else:
         if '출구' not in final.columns: final['출구'] = ""
         final['g_num'] = pd.to_numeric(final['게이트'], errors='coerce').fillna(0)
         
-        def get_zone(row):
-            if row['g_num'] > 0:
-                return '서편' if 0 < row['g_num'] <= 250 else '동편'
-            else:
-                exit_val = str(row.get('출구', '')).strip().upper()
-                return '서편' if exit_val == 'A' else '동편'
+        cond_gnum_valid = final['g_num'] > 0
+        cond_west_gate = cond_gnum_valid & (final['g_num'] <= 250)
+        cond_exit_A = final['출구'].astype(str).str.strip().str.upper() == 'A'
         
-        def get_gate_str(row):
-            if row['g_num'] > 0:
-                return str(int(row['g_num']))
-            else:
-                return '-'
+        final['구역'] = np.where(
+            cond_gnum_valid,
+            np.where(cond_west_gate, '서편', '동편'),
+            np.where(cond_exit_A, '서편', '동편')
+        )
         
-        final['구역'] = final.apply(get_zone, axis=1)
-        final['게이트'] = final.apply(get_gate_str, axis=1)
+        final['게이트'] = np.where(cond_gnum_valid, final['g_num'].astype(int).astype(str), '-')
         
         total_p = final['p_val'].sum()
         def c_sum(c): return final[final['편명'].str.startswith(c, na=False)]['p_val'].sum()
         ke_s, oz_s, dl_s = c_sum('KE'), c_sum('OZ'), c_sum('DL')
         
-        # ⭐⭐⭐ 5분 자동 새로고침 및 스크롤 기억 보강 적용 스크립트 ⭐⭐⭐
         st.components.v1.html(
             """
             <style>
@@ -598,8 +492,7 @@ else:
             var parentWin = window.parent;
             var parentDoc = parentWin.document;
 
-            // ⭐ 5분마다 자동으로 새로고침하여 현재 시간(-10~+10분)을 실시간으로 반영
-setInterval(function() {
+           setInterval(function() {
     var buttons = parentWin.document.querySelectorAll('button');
     for (var i = 0; i < buttons.length; i++) {
         if (buttons[i].innerText.includes('업데이트하기')) {
@@ -690,7 +583,6 @@ setInterval(function() {
                 }
             }
 
-            // ⭐ 스크롤 위치를 다중 타이머로 확실하게 복원 (업데이트 버튼 클릭 시 스크롤 유지)
             setTimeout(doScrollLogic, 100);
             setTimeout(doScrollLogic, 300);
             setTimeout(doScrollLogic, 600);
