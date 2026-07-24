@@ -164,10 +164,13 @@ if "toast_msg" in st.session_state:
 # --- [디자인 CSS] ---
 st.markdown("""
     <style>
-    /* ⭐ 보라색 깜빡임 애니메이션 추가 */
-    @keyframes blink-bg {
+    /* ⭐ 보라색 깜빡임 애니메이션 개선 (클래스 방식) */
+    @keyframes blink-anim {
         0%, 100% { background-color: #ffffff !important; }
         50% { background-color: #EDE9FE !important; }
+    }
+    .blink-cell {
+        animation: blink-anim 1.5s infinite ease-in-out !important;
     }
 
     .main .block-container { padding-top: 0px !important; padding-bottom: 0px !important; margin-top: -15px !important; }
@@ -377,6 +380,7 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
     for i, row in df.iterrows():
         current_h, flt = row['hour_val'], str(row['편명']).upper()
         row_style_css, text_style = "", ""
+        td_class = "" # ⭐ CSS 클래스를 담을 변수
         
         is_past_20_mins = False
         is_blinking = False
@@ -397,8 +401,8 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
             text_style = " text-decoration: line-through; color: #6B7280;"
             row_style_css = "background-color: #F9FAFB;" 
         elif opt_incoming and is_blinking:
-            # ⭐ 조건 충족 시 깜빡임(animation) CSS 적용
-            row_style_css = "animation: blink-bg 1.5s infinite; background-color: #EDE9FE;"
+            # ⭐ CSS 클래스 부여 (인라인 스타일은 비워서 애니메이션이 덮어씌워지지 않게 함)
+            td_class = "blink-cell"
         else:
             if opt_airline:
                 if flt.startswith("DL"): row_style_css = "background-color: #E3F2FD;" 
@@ -410,7 +414,8 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
             else:
                 row_style_css = "background-color: #ffffff;"
                 
-        td_style = f' style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}"'
+        # ⭐ td_class를 태그에 추가
+        td_style = f' class="{td_class}" style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}"'
         
         html += f'<tr><td{td_style}>{row["시간"]}</td><td{td_style}>{row["편명"]}</td><td{td_style}>{row.get("출발지", "")}</td><td{td_style}>{row["게이트"]}</td><td{td_style}>{row["p_display"]}</td>'
         
