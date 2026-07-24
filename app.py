@@ -164,6 +164,12 @@ if "toast_msg" in st.session_state:
 # --- [디자인 CSS] ---
 st.markdown("""
     <style>
+    /* ⭐ 보라색 깜빡임 애니메이션 추가 */
+    @keyframes blink-bg {
+        0%, 100% { background-color: #ffffff !important; }
+        50% { background-color: #EDE9FE !important; }
+    }
+
     .main .block-container { padding-top: 0px !important; padding-bottom: 0px !important; margin-top: -15px !important; }
     div[data-testid="stVerticalBlock"] { gap: 0px !important; }
     .element-container { margin-bottom: 0px !important; }
@@ -391,7 +397,8 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
             text_style = " text-decoration: line-through; color: #6B7280;"
             row_style_css = "background-color: #F9FAFB;" 
         elif opt_incoming and is_blinking:
-            row_style_css = "background-color: #EDE9FE;"
+            # ⭐ 조건 충족 시 깜빡임(animation) CSS 적용
+            row_style_css = "animation: blink-bg 1.5s infinite; background-color: #EDE9FE;"
         else:
             if opt_airline:
                 if flt.startswith("DL"): row_style_css = "background-color: #E3F2FD;" 
@@ -589,10 +596,10 @@ else:
             var parentWin = window.parent;
             var parentDoc = parentWin.document;
 
-            // ⭐ 30분마다 자동으로 새로고침하여 현재 시간(-10~+10분)을 실시간으로 반영
+            // ⭐ 5분마다 자동으로 새로고침하여 현재 시간(-10~+10분)을 실시간으로 반영
             setTimeout(function() {
                 parentWin.location.reload();
-            }, 1800000);
+            }, 300000);
 
             function takePic() {
                 var btn = document.getElementById('pic-btn');
