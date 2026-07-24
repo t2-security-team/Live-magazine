@@ -600,7 +600,13 @@ else:
 
             // ⭐ 5분마다 자동으로 새로고침하여 현재 시간(-10~+10분)을 실시간으로 반영
 setInterval(function() {
-    parentWin.location.reload();
+    var buttons = parentWin.document.querySelectorAll('button');
+    for (var i = 0; i < buttons.length; i++) {
+        if (buttons[i].innerText.includes('업데이트하기')) {
+            buttons[i].click();
+            break;
+        }
+    }
 }, 300000);
 
             function takePic() {
