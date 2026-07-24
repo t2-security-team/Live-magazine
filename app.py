@@ -113,7 +113,7 @@ def clear_sheet(sheet_name):
         st.sidebar.error(f"⚠ 데이터 비우기 실패: {e}")
 
 # ⭐ [실시간 게이트 데이터 API 연동]
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
     api_key = st.secrets["api"]["service_key"]
     url = "http://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp"
@@ -381,7 +381,7 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
                 f_hour, f_min = int(time_parts[0]), int(time_parts[1])
                 flight_dt = target_date.replace(hour=f_hour, minute=f_min, second=0, microsecond=0)
                 
-                # ⭐ 현재 시간 기준 -10분 ~ +10분 체크 (-10분 <= 비행기시각 <= +10분)
+                # ⭐ 현재 시간 기준 -10분 ~ +10분 체크
                 if flight_dt <= now_kst - timedelta(minutes=20):
                     is_past_20_mins = True
                 elif now_kst - timedelta(minutes=10) <= flight_dt <= now_kst + timedelta(minutes=10):
@@ -391,6 +391,9 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
         if is_past_20_mins:
             text_style = " text-decoration: line-through; color: #6B7280;"
             row_style_css = "background-color: #F9FAFB;" 
+        elif is_blinking:
+            # ⭐ 요청하신 지나간 행과 동일한 회색 배경(#F9FAFB)에 눈에 띄는 파란색 테두리 강조 적용 (100% 안전한 인라인 스타일)
+            row_style_css = "background-color: #F9FAFB; border-left: 4px solid #2563EB;"
         else:
             if opt_airline:
                 if flt.startswith("DL"): row_style_css = "background-color: #E3F2FD;" 
@@ -400,11 +403,9 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, font_siz
                 elif current_h == 17: row_style_css = "background-color: #FFFDF0;" 
                 elif current_h == 18: row_style_css = "background-color: #FFF5F8;" 
                 
-        time_attr = f' data-flight-time="{row["시간"]}"' if is_blinking else ''
-        
         td_style = f' style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}"'
         
-        html += f'<tr{time_attr}><td{td_style}>{row["시간"]}</td><td{td_style}>{row["편명"]}</td><td{td_style}>{row.get("출발지", "")}</td><td{td_style}>{row["게이트"]}</td><td{td_style}>{row["p_display"]}</td>'
+        html += f'<tr><td{td_style}>{row["시간"]}</td><td{td_style}>{row["편명"]}</td><td{td_style}>{row.get("출발지", "")}</td><td{td_style}>{row["게이트"]}</td><td{td_style}>{row["p_display"]}</td>'
         
         if current_h not in processed_hours:
             sum_font = font_size + 1
@@ -567,7 +568,7 @@ else:
         def c_sum(c): return final[final['편명'].str.startswith(c, na=False)]['p_val'].sum()
         ke_s, oz_s, dl_s = c_sum('KE'), c_sum('OZ'), c_sum('DL')
         
-        # ⭐⭐⭐ 자바스크립트를 이용해 회색 깜빡임 + 60초마다 자동 새로고침(시간 갱신) 적용 ⭐⭐⭐
+        # ⭐⭐⭐ 60초 자동 새로고침(시간 실시간 갱신) 적용 스크립트 ⭐⭐⭐
         st.components.v1.html(
             """
             <style>
@@ -586,33 +587,7 @@ else:
             var parentWin = window.parent;
             var parentDoc = parentWin.document;
 
-            // 1) 회색 깜빡임 애니메이션 주입
-            if (!parentDoc.getElementById('js-blink-style')) {
-                var styleEl = parentDoc.createElement('style');
-                styleEl.id = 'js-blink-style';
-                styleEl.innerHTML = `
-                    @keyframes js-gray-blink {
-                        0%, 100% { background-color: #F9FAFB !important; color: #6B7280 !important; }
-                        50% { background-color: #ffffff !important; color: #1f2937 !important; }
-                    }
-                    tr.js-blinking-row td:not(.sum-cell) {
-                        animation: js-gray-blink 1.5s ease-in-out infinite !important;
-                    }
-                `;
-                parentDoc.head.appendChild(styleEl);
-            }
-
-            // 2) 대상 행에 깜빡임 클래스 부여
-            setInterval(function() {
-                var rows = parentDoc.querySelectorAll('tr[data-flight-time]');
-                rows.forEach(function(tr) {
-                    if (!tr.classList.contains('js-blinking-row')) {
-                        tr.classList.add('js-blinking-row');
-                    }
-                });
-            }, 300);
-
-            // 3) ⭐ 60초마다 페이지를 자동으로 새로고침하여 현재 시간(-10~+10분) 갱신 (스크롤 위치 유지)
+            // ⭐ 60초마다 자동으로 새로고침하여 현재 시간(-10~+10분)을 실시간으로 반영 (스크롤 위치 유지)
             setTimeout(function() {
                 parentWin.location.reload();
             }, 60000);
