@@ -570,7 +570,7 @@ else:
         def c_sum(c): return final[final['편명'].str.startswith(c, na=False)]['p_val'].sum()
         ke_s, oz_s, dl_s = c_sum('KE'), c_sum('OZ'), c_sum('DL')
         
-        # ⭐⭐⭐ 5분 자동 새로고침(시간 실시간 갱신) 적용 스크립트 ⭐⭐⭐
+        # ⭐⭐⭐ 5분 자동 새로고침 및 스크롤 기억 보강 적용 스크립트 ⭐⭐⭐
         st.components.v1.html(
             """
             <style>
@@ -589,7 +589,7 @@ else:
             var parentWin = window.parent;
             var parentDoc = parentWin.document;
 
-            // ⭐ 5분마다 자동으로 새로고침하여 현재 시간(-10~+10분)을 실시간으로 반영 (스크롤 위치 유지)
+            // ⭐ 5분마다 자동으로 새로고침하여 현재 시간(-10~+10분)을 실시간으로 반영
             setTimeout(function() {
                 parentWin.location.reload();
             }, 300000);
@@ -675,7 +675,11 @@ else:
                 }
             }
 
-            setTimeout(doScrollLogic, 400);
+            // ⭐ 스크롤 위치를 다중 타이머로 확실하게 복원 (업데이트 버튼 클릭 시 스크롤 유지)
+            setTimeout(doScrollLogic, 100);
+            setTimeout(doScrollLogic, 300);
+            setTimeout(doScrollLogic, 600);
+            setTimeout(doScrollLogic, 1000);
 
             setInterval(function() {
                 var scrollContainer = parentDoc.querySelector('.main') || parentWin;
@@ -683,7 +687,7 @@ else:
                 if(scrollTop > 0) {
                     parentWin.sessionStorage.setItem('stScrollPos', scrollTop);
                 }
-            }, 1000);
+            }, 500);
             </script>
             """, height=45
         )
