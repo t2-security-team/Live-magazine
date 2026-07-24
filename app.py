@@ -121,7 +121,7 @@ def fetch_realtime_gate_info(search_date_str):
         
         req_url = f"{url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=json&numOfRows=1800&pageNo=1"
         
-        response = requests.get(req_url, timeout=15)
+        response = requests.get(req_url, timeout=30)
         if response.status_code != 200:
             st.sidebar.error(f"⚠ API 서버 응답 오류 (상태 코드: {response.status_code})")
             return pd.DataFrame()
