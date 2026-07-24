@@ -112,24 +112,47 @@ def clear_sheet(sheet_name):
     except Exception as e:
         st.sidebar.error(f"⚠ 데이터 비우기 실패: {e}")
 
-# ⭐ [실시간 게이트 데이터 API 연동]
+# ⭐ [실시간 게이트 데이터 API 연동 - 메인/서브 하이브리드 로직 추가]
 @st.cache_data(ttl=1800, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
     try:
         api_key = st.secrets["api"]["service_key"]
-        url = "http://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp"
         
-        req_url = f"{url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=json&numOfRows=1800&pageNo=1"
+        # 1. 메인 API (전체 운항 현황)
+        main_url = "http://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp"
+        main_req_url = f"{main_url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=json&numOfRows=1800&pageNo=1"
         
-        response = requests.get(req_url, timeout=30)
-        if response.status_code != 200:
-            st.sidebar.error(f"⚠ API 서버 응답 오류 (상태 코드: {response.status_code})")
+        # 2. 서브 API (여객기 운항 현황)
+        sub_url = "http://apis.data.go.kr/B551177/StatusOfPassengerFlightsDeOdp/getPassengerArrivalsDeOdp"
+        sub_req_url = f"{sub_url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&type=json&numOfRows=1800&pageNo=1"
+        
+        data = None
+        
+        try:
+            # 메인 API 시도 (응답이 10초 이상 지연되면 예외 발생 -> 서브로 넘어감)
+            response = requests.get(main_req_url, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+            else:
+                raise Exception(f"메인 API 오류 상태 코드: {response.status_code}")
+                
+        except Exception as e:
+            # 메인 API 실패 시 서브 API로 재요청
+            st.sidebar.warning("⚠ 메인 API 응답 지연으로 서브 API를 통해 데이터를 불러왔습니다.")
+            sub_response = requests.get(sub_req_url, timeout=20)
+            if sub_response.status_code == 200:
+                data = sub_response.json()
+            else:
+                st.sidebar.error(f"⚠ 서브 API 서버까지 응답 오류 발생 (상태 코드: {sub_response.status_code})")
+                return pd.DataFrame()
+        
+        if not data:
             return pd.DataFrame()
             
-        data = response.json()
         items = []
         if 'response' in data and 'body' in data['response'] and 'items' in data['response']['body']:
             item_data = data['response']['body']['items']
+            # 데이터 구조가 단일 딕셔너리일 때와 리스트일 때 모두 처리
             if isinstance(item_data, dict) and 'item' in item_data:
                 item_data = item_data['item']
             elif not isinstance(item_data, list):
