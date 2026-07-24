@@ -372,7 +372,7 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
         current_h, flt = row['hour_val'], str(row['편명']).upper()
         row_style_css, text_style = "", ""
         
-        is_past_10_mins = False
+        is_past_20_mins = False
         is_blinking = False
         
         try:
@@ -381,14 +381,13 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
                 f_hour, f_min = int(time_parts[0]), int(time_parts[1])
                 flight_dt = target_date.replace(hour=f_hour, minute=f_min, second=0, microsecond=0)
                 
-                # ⭐ 10분 경과 여부로 회색(취소선) 처리 기준 변경
-                if flight_dt <= now_kst - timedelta(minutes=10):
-                    is_past_10_mins = True
+                if flight_dt <= now_kst - timedelta(minutes=20):
+                    is_past_20_mins = True
                 elif now_kst - timedelta(minutes=10) <= flight_dt <= now_kst + timedelta(minutes=10):
                     is_blinking = True
         except: pass
             
-        if is_past_10_mins:
+        if is_past_20_mins:
             text_style = " text-decoration: line-through; color: #6B7280;"
             row_style_css = "background-color: #F9FAFB;" 
         elif opt_incoming and is_blinking:
@@ -432,6 +431,7 @@ with st.sidebar:
     
     st.divider()
     
+    # ⭐ 시각화 옵션 복원 (선택 가능)
     vis_option = st.radio("🎨 시각화 옵션", ["✈ 항공사별 색상 표시 (DL, OZ)", "⏰ 첨두시간 색상 표시 (16~18시)", "💜 곧 들어오는 비행기 표시 (연보라색)", "적용 안 함"], index=2)
     opt_airline = (vis_option == "✈ 항공사별 색상 표시 (DL, OZ)")
     opt_peak = (vis_option == "⏰ 첨두시간 색상 표시 (16~18시)")
@@ -589,7 +589,7 @@ else:
             var parentWin = window.parent;
             var parentDoc = parentWin.document;
 
-            # ⭐ 60초마다 자동으로 새로고침하여 현재 시간(-10~+10분)을 실시간으로 반영 (스크롤 위치 유지)
+            // ⭐ 60초마다 자동으로 새로고침하여 현재 시간(-10~+10분)을 실시간으로 반영 (스크롤 위치 유지)
             setTimeout(function() {
                 parentWin.location.reload();
             }, 60000);
