@@ -371,6 +371,7 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
     for i, row in df.iterrows():
         current_h, flt = row['hour_val'], str(row['편명']).upper()
         row_style_css, text_style = "", ""
+        td_class = "" 
         
         is_past_20_mins = False
         is_blinking = False
@@ -391,7 +392,8 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
             text_style = " text-decoration: line-through; color: #6B7280;"
             row_style_css = "background-color: #F9FAFB;" 
         elif opt_incoming and is_blinking:
-            row_style_css = "background-color: #EDE9FE;"
+            # ⭐ CSS 클래스 부여 (JS에서 이 클래스에 애니메이션을 적용함)
+            td_class = "blink-cell"
         else:
             if opt_airline:
                 if flt.startswith("DL"): row_style_css = "background-color: #E3F2FD;" 
@@ -403,7 +405,7 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
             else:
                 row_style_css = "background-color: #ffffff;"
                 
-        td_style = f' style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}"'
+        td_style = f' class="{td_class}" style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}"'
         
         html += f'<tr><td{td_style}>{row["시간"]}</td><td{td_style}>{row["편명"]}</td><td{td_style}>{row.get("출발지", "")}</td><td{td_style}>{row["게이트"]}</td><td{td_style}>{row["p_display"]}</td>'
         
@@ -588,6 +590,22 @@ else:
             <script>
             var parentWin = window.parent;
             var parentDoc = parentWin.document;
+
+            // ⭐ 깜빡임 CSS 강제 주입 (스트림릿 필터 우회하여 전체 화면에 스타일 꽂아넣기)
+            if (!parentDoc.getElementById('blink-style-injected')) {
+                var style = parentDoc.createElement('style');
+                style.id = 'blink-style-injected';
+                style.innerHTML = `
+                    @keyframes blink-anim {
+                        0%, 100% { background-color: #ffffff !important; }
+                        50% { background-color: #EDE9FE !important; }
+                    }
+                    .blink-cell {
+                        animation: blink-anim 1.5s infinite ease-in-out !important;
+                    }
+                `;
+                parentDoc.head.appendChild(style);
+            }
 
             // ⭐ 5분마다 자동으로 새로고침하여 현재 시간(-10~+10분)을 실시간으로 반영
             setTimeout(function() {
