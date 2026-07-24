@@ -3,7 +3,7 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 import re
-import io 
+import io
 import requests
 from datetime import datetime, timedelta, timezone
 
@@ -20,7 +20,7 @@ if "last_updated" not in st.session_state:
     st.session_state["last_updated"] = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
 
 # ⭐ [구글 시트 연동 설정]
-SHEET_NAME = "보안검색_데이터_공유" 
+SHEET_NAME = "보안검색_데이터_공유"
 
 @st.cache_resource(show_spinner=False)
 def get_gspread_client():
@@ -47,7 +47,7 @@ def save_to_sheet(df, sheet_name):
         sheet.clear()
         data_to_save = [df.columns.values.tolist()] + df.fillna("").astype(str).values.tolist()
         sheet.update(range_name="A1", values=data_to_save)
-        load_from_sheet.clear() 
+        load_from_sheet.clear()
         return True
     except Exception as e:
         st.sidebar.error(f"⚠ 데이터 저장 실패: {e}")
@@ -67,7 +67,7 @@ def append_file_names(new_names):
         df = pd.DataFrame(combined, columns=["파일명"])
         data_to_save = [df.columns.values.tolist()] + df.values.tolist()
         sheet.update(range_name="A1", values=data_to_save)
-        load_file_names.clear() 
+        load_file_names.clear()
     except Exception as e:
         st.sidebar.error(f"⚠ 파일 목록 저장 실패: {e}")
 
@@ -105,7 +105,7 @@ def clear_sheet(sheet_name):
         spreadsheet = get_spreadsheet()
         sheet = spreadsheet.worksheet(sheet_name)
         sheet.clear()
-        load_from_sheet.clear() 
+        load_from_sheet.clear()
         load_file_names.clear()
     except gspread.exceptions.WorksheetNotFound:
         pass
@@ -115,14 +115,15 @@ def clear_sheet(sheet_name):
 # ⭐ [실시간 게이트 데이터 API 연동]
 @st.cache_data(ttl=1800, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
-    api_key = st.secrets["api"]["service_key"]
-    url = "http://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp"
-    
-    req_url = f"{url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=json&numOfRows=1800&pageNo=1"
-    
     try:
+        api_key = st.secrets["api"]["service_key"]
+        url = "http://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp"
+        
+        req_url = f"{url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=json&numOfRows=1800&pageNo=1"
+        
         response = requests.get(req_url, timeout=15)
         if response.status_code != 200:
+            st.sidebar.error(f"⚠ API 서버 응답 오류 (상태 코드: {response.status_code})")
             return pd.DataFrame()
             
         data = response.json()
@@ -155,6 +156,8 @@ def fetch_realtime_gate_info(search_date_str):
             
         return df
     except Exception as e:
+        # 에러 발생 시 원인을 사이드바에 출력하여 디버깅 용이하게 함
+        st.sidebar.error(f"⚠ API 데이터 불러오기 예외 발생: {e}")
         return pd.DataFrame()
 
 if "toast_msg" in st.session_state:
