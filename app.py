@@ -592,7 +592,7 @@ else:
             // ⭐ 5분마다 자동으로 새로고침하여 현재 시간(-10~+10분)을 실시간으로 반영
             setTimeout(function() {
                 parentWin.location.reload();
-            }, 300000);
+            }, 1800000);
 
             function takePic() {
                 var btn = document.getElementById('pic-btn');
