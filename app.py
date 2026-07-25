@@ -328,7 +328,7 @@ with st.sidebar:
     file_list_placeholder = st.container()
     st.divider()
 
-    date_option = st.radio("📅 표시 날짜 선택", ["오늘", "내일 (+1일)"], index=0)
+    date_option = st.radio("📅 서버 날짜 선택", ["오늘", "내일 (+1일)"], index=0)
     
     KST = timezone(timedelta(hours=9))
     today_date = datetime.now(KST)
