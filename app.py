@@ -287,9 +287,10 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
                 f_hour, f_min = int(time_parts[0]), int(time_parts[1])
                 flight_dt = target_date.replace(hour=f_hour, minute=f_min, second=0, microsecond=0)
                 
+                # 수정된 부분: 도착시간 기준으로부터 이후 10분 동안만 깜빡임(연보라색) 적용
                 if flight_dt <= now_kst - timedelta(minutes=20):
                     is_past_20_mins = True
-                elif now_kst - timedelta(minutes=10) <= flight_dt <= now_kst + timedelta(minutes=10):
+                elif flight_dt <= now_kst <= flight_dt + timedelta(minutes=10):
                     is_blinking = True
         except: pass
             
