@@ -348,7 +348,7 @@ with st.sidebar:
     default_start_hour = max(0, current_hour - 1) if date_option == "오늘" else 0
     
     time_range = st.slider("조회 시간대 (시)", 0, 24, (default_start_hour, 24))
-    base_font_size = st.slider("🔠 표 글자 조절 (px)", min_value=10, max_value=17, value=12, step=1)
+    base_font_size = st.slider("🔠 표 글자 조절 (px)", min_value=10, max_value=17, value=13, step=1)
     
     st.divider()
 
