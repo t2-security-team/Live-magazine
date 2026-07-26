@@ -146,7 +146,9 @@ def fetch_realtime_gate_info(search_date_str):
             for item in item_data:
                 flight_id = item.get('flightId', '').replace('DAL', 'DL').replace('KAL', 'KE').replace('AAR', 'OZ')
                 
-                raw_time = str(item.get('estimatedDatetime', '') or item.get('scheduleDatetime', ''))[-4:]
+                # 🚀 [수정] 빈 문자열을 더 안전하게 처리
+                time_str = str(item.get('estimatedDatetime') or item.get('scheduleDatetime') or "")
+                raw_time = time_str[-4:] if len(time_str) >= 4 else time_str
                 formatted_time = f"{raw_time[:2]}:{raw_time[2:]}" if len(raw_time) == 4 else raw_time
                 
                 items.append({
@@ -323,8 +325,14 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
                 
         td_style = f' style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}"'
         
-        출발지_val = row.get("출발지", "")
-        html_parts.append(f'<tr><td{td_style}>{row["시간"]}</td><td{td_style}>{row["편명"]}</td><td{td_style}>{출발지_val}</td><td{td_style}>{row["게이트"]}</td><td{td_style}>{row.get("p_display", "")}</td>')
+        # 🚀 [수정] HTML 이스케이프 적용하여 특수문자로 인한 레이아웃 깨짐 방지
+        시간_val = html.escape(str(row["시간"]))
+        편명_val = html.escape(str(row["편명"]))
+        출발지_val = html.escape(str(row.get("출발지", "")))
+        게이트_val = html.escape(str(row["게이트"]))
+        p_display_val = html.escape(str(row.get("p_display", "")))
+
+        html_parts.append(f'<tr><td{td_style}>{시간_val}</td><td{td_style}>{편명_val}</td><td{td_style}>{출발지_val}</td><td{td_style}>{게이트_val}</td><td{td_style}>{p_display_val}</td>')
         
         if current_h not in processed_hours:
             sum_font = font_size + 1
