@@ -360,7 +360,7 @@ with st.sidebar:
     option_today = f"오늘 ({today_str})"
     option_tomorrow = f"내일 ({tomorrow_str})"
     
-    date_option = st.radio("📅 서버 날짜 선택", [option_today, option_tomorrow], index=0)
+    date_option = st.radio("📅 확인 할 게이트 날짜 선택", [option_today, option_tomorrow], index=0)
     
     # 🔹 설명 캡션 추가 (추천 문구 적용) 🔹
     st.caption("💡 공유 중인 승객 데이터의 날짜(제목)를 확인하신 후, 알맞은 조회 일자를 선택해 주세요.")
