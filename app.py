@@ -399,8 +399,8 @@ with st.sidebar:
         st.session_state["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
         st.rerun()
         
-    현재_시간 = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
-    st.caption(f"마지막 업데이트: {현재_시간}")
+    # 수정 후
+    st.caption(f"마지막 업데이트: {st.session_state['last_updated']}")
     
     st.caption("⚠️ 잦은 업데이트 시 트래픽 허용량 초과로 기능이 정지 될 수 있습니다.(자정 초기화)")
 
