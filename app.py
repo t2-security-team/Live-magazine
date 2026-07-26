@@ -119,7 +119,8 @@ def clear_sheet(sheet_name):
 def fetch_realtime_gate_info(search_date_str):
     try:
         api_key = st.secrets["api"]["service_key"]
-        url = "http://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp"
+        # 🚀 [수정] http -> https 로 변경
+        url = "https://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp"
         
         req_url = f"{url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=json&numOfRows=1800&pageNo=1"
         
@@ -128,7 +129,12 @@ def fetch_realtime_gate_info(search_date_str):
             st.sidebar.error(f"⚠ API 서버 응답 오류 (상태 코드: {response.status_code})")
             return pd.DataFrame()
             
-        data = response.json()
+        # 🚀 [수정] API 서버에서 이상한 값을 뱉어낼 때 앱이 멈추는 것 방어
+        try:
+            data = response.json()
+        except requests.exceptions.JSONDecodeError:
+            st.sidebar.error("⚠ 공공데이터포털 서버 응답이 지연되고 있습니다. (일시적 장애)")
+            return pd.DataFrame()
         items = []
         if 'response' in data and 'body' in data['response'] and 'items' in data['response']['body']:
             item_data = data['response']['body']['items']
