@@ -16,7 +16,11 @@ from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ct
 st.set_page_config(page_title="T2 보안검색 환승부 잡지", layout="wide")
 
 # 300,000 밀리초(5분)마다 자동으로 앱을 재실행하여 실시간 연동
-st_autorefresh(interval=300000, limit=None, key="data_refresh")
+# 자동 갱신 횟수를 변수(refresh_count)로 받습니다.
+refresh_count = st_autorefresh(interval=300000, limit=None, key="data_refresh")
+
+if "last_refresh_count" not in st.session_state:
+    st.session_state["last_refresh_count"] = refresh_count
 
 if "last_updated" not in st.session_state:
     st.session_state["last_updated"] = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
@@ -114,12 +118,11 @@ def clear_sheet(sheet_name):
     except Exception as e:
         st.sidebar.error(f"⚠ 데이터 비우기 실패: {e}")
 
-# ⭐ 여유가 많은 공항 API만 5분(300초) 마다 실시간 갱신
-@st.cache_data(ttl=300, show_spinner=False)
+# ⭐ 충돌 방지를 위해 API ttl을 300초에서 290초로 단축
+@st.cache_data(ttl=290, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
     try:
         api_key = st.secrets["api"]["service_key"]
-        # 🚀 [수정] http -> https 로 변경
         url = "https://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp"
         
         req_url = f"{url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=json&numOfRows=1800&pageNo=1"
@@ -129,12 +132,12 @@ def fetch_realtime_gate_info(search_date_str):
             st.sidebar.error(f"⚠ API 서버 응답 오류 (상태 코드: {response.status_code})")
             return pd.DataFrame()
             
-        # 🚀 [수정] API 서버에서 이상한 값을 뱉어낼 때 앱이 멈추는 것 방어
         try:
             data = response.json()
         except requests.exceptions.JSONDecodeError:
             st.sidebar.error("⚠ 공공데이터포털 서버 응답이 지연되고 있습니다. (일시적 장애)")
             return pd.DataFrame()
+            
         items = []
         if 'response' in data and 'body' in data['response'] and 'items' in data['response']['body']:
             item_data = data['response']['body']['items']
@@ -146,7 +149,6 @@ def fetch_realtime_gate_info(search_date_str):
             for item in item_data:
                 flight_id = item.get('flightId', '').replace('DAL', 'DL').replace('KAL', 'KE').replace('AAR', 'OZ')
                 
-                # 🚀 [수정] 빈 문자열을 더 안전하게 처리
                 time_str = str(item.get('estimatedDatetime') or item.get('scheduleDatetime') or "")
                 raw_time = time_str[-4:] if len(time_str) >= 4 else time_str
                 formatted_time = f"{raw_time[:2]}:{raw_time[2:]}" if len(raw_time) == 4 else raw_time
@@ -168,6 +170,14 @@ def fetch_realtime_gate_info(search_date_str):
     except Exception as e:
         st.sidebar.error(f"⚠ API 데이터 불러오기 예외 발생: {e}")
         return pd.DataFrame()
+
+# --- 5분 자동 갱신 시 캐시를 강제로 비우는 로직 ---
+if refresh_count > st.session_state["last_refresh_count"]:
+    fetch_realtime_gate_info.clear()  # API 캐시 강제 삭제
+    st.session_state["last_refresh_count"] = refresh_count
+    st.session_state["last_updated"] = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
+    st.session_state["toast_msg"] = "자동 새로고침 완료!"
+# ------------------------------------------------
 
 if "toast_msg" in st.session_state:
     st.toast(st.session_state["toast_msg"], icon="✅")
@@ -300,7 +310,7 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
                 f_hour, f_min = int(time_parts[0]), int(time_parts[1])
                 flight_dt = target_date.replace(hour=f_hour, minute=f_min, second=0, microsecond=0)
                 
-                # 수정된 부분: 도착시간 기준으로부터 이후 10분 동안만 깜빡임(형광색) 적용
+                # 도착시간 기준으로부터 이후 10분 동안만 깜빡임(형광색) 적용
                 if flight_dt <= now_kst - timedelta(minutes=20):
                     is_past_20_mins = True
                 elif flight_dt <= now_kst <= flight_dt + timedelta(minutes=10):
@@ -325,7 +335,6 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
                 
         td_style = f' style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}"'
         
-        # 🚀 [수정] HTML 이스케이프 적용하여 특수문자로 인한 레이아웃 깨짐 방지
         시간_val = html.escape(str(row["시간"]))
         편명_val = html.escape(str(row["편명"]))
         출발지_val = html.escape(str(row.get("출발지", "")))
@@ -352,20 +361,16 @@ with st.sidebar:
     today_date = datetime.now(KST)
     tomorrow_date = today_date + timedelta(days=1)
     
-    # 26년 7월 26일 포맷 만들기
     today_str = f"{today_date.strftime('%y')}년 {today_date.month}월 {today_date.day}일"
     tomorrow_str = f"{tomorrow_date.strftime('%y')}년 {tomorrow_date.month}월 {tomorrow_date.day}일"
 
-    # 옵션 문자열 생성
     option_today = f"오늘 ({today_str})"
     option_tomorrow = f"내일 ({tomorrow_str})"
     
     date_option = st.radio("📅 확인할 게이트 날짜 선택", [option_today, option_tomorrow], index=0)
     
-    # 🔹 설명 캡션 추가 (추천 문구 적용) 🔹
     st.caption("💡 공유 중인 승객 데이터의 날짜(제목)를 확인하신 후, 알맞은 조회 일자를 선택해 주세요.")
     
-    # 날짜 옵션에 "내일"이라는 글자가 포함되어 있는지 확인하여 타겟 날짜 설정
     target_date = tomorrow_date if "내일" in date_option else today_date
         
     display_date_str = target_date.strftime("%Y년 %m월 %d일")
@@ -379,7 +384,6 @@ with st.sidebar:
     opt_incoming = (vis_option == "곧 들어오는 비행기 표시 (형광색)")
     
     current_hour = datetime.now(KST).hour
-    # 오늘이 선택되었을 때만 기본 시작시간 설정 변경
     default_start_hour = max(0, current_hour - 1) if "오늘" in date_option else 0
     
     time_range = st.slider("조회 시간대 (시)", 0, 24, (default_start_hour, 24))
@@ -395,7 +399,6 @@ with st.sidebar:
         st.session_state["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
         st.rerun()
         
-   # 수동 버튼 클릭 여부와 상관없이, 화면이 갱신될 때마다 현재 시간으로 표시!
     현재_시간 = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
     st.caption(f"마지막 업데이트: {현재_시간}")
     
@@ -527,13 +530,10 @@ else:
             <button class="custom-btn" onclick="takePic()" id="pic-btn">📸 전체 사진으로 저장</button>
             
             <script>
-         var parentWin = window.parent;
+            var parentWin = window.parent;
             var parentDoc = parentWin.document;
 
-            // 기존에 있던 setInterval(업데이트 버튼 클릭) 부분 삭제됨
-
             function takePic() {
-            
                 var btn = document.getElementById('pic-btn');
                 btn.innerText = "⏳ 캡처 중... 잠시만요!";
                 try {
