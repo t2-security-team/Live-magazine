@@ -395,9 +395,11 @@ with st.sidebar:
         st.session_state["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
         st.rerun()
         
-    if "last_updated" in st.session_state:
-        st.caption(f"마지막 업데이트: {st.session_state['last_updated']}")
-        st.caption("⚠️ 잦은 업데이트 시 트래픽 허용량 초과로 기능이 정지 될 수 있습니다.(자정 초기화)")
+   # 수동 버튼 클릭 여부와 상관없이, 화면이 갱신될 때마다 현재 시간으로 표시!
+    현재_시간 = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
+    st.caption(f"마지막 업데이트: {현재_시간}")
+    
+    st.caption("⚠️ 잦은 업데이트 시 트래픽 허용량 초과로 기능이 정지 될 수 있습니다.(자정 초기화)")
 
     st.divider()
     
