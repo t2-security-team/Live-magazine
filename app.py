@@ -1,3 +1,5 @@
+import html
+from streamlit_autorefresh import st_autorefresh
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -12,6 +14,9 @@ import threading
 from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 
 st.set_page_config(page_title="T2 보안검색 환승부 잡지", layout="wide")
+
+# 300,000 밀리초(5분)마다 자동으로 앱을 재실행하여 실시간 연동
+st_autorefresh(interval=300000, limit=None, key="data_refresh")
 
 if "last_updated" not in st.session_state:
     st.session_state["last_updated"] = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
@@ -506,20 +511,13 @@ else:
             <button class="custom-btn" onclick="takePic()" id="pic-btn">📸 전체 사진으로 저장</button>
             
             <script>
-            var parentWin = window.parent;
+         var parentWin = window.parent;
             var parentDoc = parentWin.document;
 
-           setInterval(function() {
-    var buttons = parentWin.document.querySelectorAll('button');
-    for (var i = 0; i < buttons.length; i++) {
-        if (buttons[i].innerText.includes('업데이트하기')) {
-            buttons[i].click();
-            break;
-        }
-    }
-}, 300000);
+            // 기존에 있던 setInterval(업데이트 버튼 클릭) 부분 삭제됨
 
             function takePic() {
+            
                 var btn = document.getElementById('pic-btn');
                 btn.innerText = "⏳ 캡처 중... 잠시만요!";
                 try {
