@@ -339,7 +339,7 @@ with st.sidebar:
 
     # 옵션 문자열 생성
     option_today = f"오늘 ({today_str})"
-    option_tomorrow = f"내일 (+1일) ({tomorrow_str})"
+    option_tomorrow = f"내일 ({tomorrow_str})"
     
     date_option = st.radio("📅 서버 날짜 선택", [option_today, option_tomorrow], index=0)
     
