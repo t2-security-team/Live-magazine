@@ -344,7 +344,7 @@ with st.sidebar:
     date_option = st.radio("📅 서버 날짜 선택", [option_today, option_tomorrow], index=0)
     
     # 🔹 설명 캡션 추가 (추천 문구 적용) 🔹
-    st.caption("💡 공유 중인 데이터의 날짜(제목)를 확인하신 후, 알맞은 조회 일자를 선택해 주세요.")
+    st.caption("💡 공유 중인 승객 데이터의 날짜(제목)를 확인하신 후, 알맞은 조회 일자를 선택해 주세요.")
     
     # 날짜 옵션에 "내일"이라는 글자가 포함되어 있는지 확인하여 타겟 날짜 설정
     target_date = tomorrow_date if "내일" in date_option else today_date
