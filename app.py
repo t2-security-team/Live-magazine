@@ -328,11 +328,26 @@ with st.sidebar:
     file_list_placeholder = st.container()
     st.divider()
 
-    date_option = st.radio("📅 서버 날짜 선택", ["오늘", "내일 (+1일)"], index=0)
-    
+    # 🔹 날짜 동적 계산 부분 🔹
     KST = timezone(timedelta(hours=9))
     today_date = datetime.now(KST)
-    target_date = today_date + timedelta(days=1) if date_option == "내일 (+1일)" else today_date
+    tomorrow_date = today_date + timedelta(days=1)
+    
+    # 26년 7월 26일 포맷 만들기
+    today_str = f"{today_date.strftime('%y')}년 {today_date.month}월 {today_date.day}일"
+    tomorrow_str = f"{tomorrow_date.strftime('%y')}년 {tomorrow_date.month}월 {tomorrow_date.day}일"
+
+    # 옵션 문자열 생성
+    option_today = f"오늘 ({today_str})"
+    option_tomorrow = f"내일 (+1일) ({tomorrow_str})"
+    
+    date_option = st.radio("📅 서버 날짜 선택", [option_today, option_tomorrow], index=0)
+    
+    # 🔹 설명 캡션 추가 (추천 문구 적용) 🔹
+    st.caption("💡 공유 중인 데이터의 날짜(제목)를 확인하신 후, 알맞은 조회 일자를 선택해 주세요.")
+    
+    # 날짜 옵션에 "내일"이라는 글자가 포함되어 있는지 확인하여 타겟 날짜 설정
+    target_date = tomorrow_date if "내일" in date_option else today_date
         
     display_date_str = target_date.strftime("%Y년 %m월 %d일")
     api_target_date_str = target_date.strftime("%Y%m%d")
@@ -345,7 +360,8 @@ with st.sidebar:
     opt_incoming = (vis_option == "곧 들어오는 비행기 표시 (형광색)")
     
     current_hour = datetime.now(KST).hour
-    default_start_hour = max(0, current_hour - 1) if date_option == "오늘" else 0
+    # 오늘이 선택되었을 때만 기본 시작시간 설정 변경
+    default_start_hour = max(0, current_hour - 1) if "오늘" in date_option else 0
     
     time_range = st.slider("조회 시간대 (시)", 0, 24, (default_start_hour, 24))
     base_font_size = st.slider("🔠 표 글자 조절 (px)", min_value=10, max_value=17, value=13, step=1)
