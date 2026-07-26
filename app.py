@@ -287,7 +287,7 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
                 f_hour, f_min = int(time_parts[0]), int(time_parts[1])
                 flight_dt = target_date.replace(hour=f_hour, minute=f_min, second=0, microsecond=0)
                 
-                # 수정된 부분: 도착시간 기준으로부터 이후 10분 동안만 깜빡임(연보라색) 적용
+                # 수정된 부분: 도착시간 기준으로부터 이후 10분 동안만 깜빡임(형광색) 적용
                 if flight_dt <= now_kst - timedelta(minutes=20):
                     is_past_20_mins = True
                 elif flight_dt <= now_kst <= flight_dt + timedelta(minutes=10):
@@ -298,7 +298,7 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
             text_style = " text-decoration: line-through; color: #6B7280;"
             row_style_css = "background-color: #F9FAFB;" 
         elif opt_incoming and is_blinking:
-            row_style_css = "background-color: #EDE9FE;"
+            row_style_css = "background-color: #FFFF00;"
         else:
             if opt_airline:
                 if flt.startswith("DL"): row_style_css = "background-color: #E3F2FD;" 
@@ -339,10 +339,10 @@ with st.sidebar:
     
     st.divider()
     
-    vis_option = st.radio("🎨 시각화 옵션", ["✈ 항공사별 색상 표시 (DL, OZ)", "⏰ 첨두시간 색상 표시 (16~18시)", "곧 들어오는 비행기 표시 (연보라색)", "적용 안 함"], index=2)
+    vis_option = st.radio("🎨 시각화 옵션", ["✈ 항공사별 색상 표시 (DL, OZ)", "⏰ 첨두시간 색상 표시 (16~18시)", "곧 들어오는 비행기 표시 (형광색)", "적용 안 함"], index=2)
     opt_airline = (vis_option == "✈ 항공사별 색상 표시 (DL, OZ)")
     opt_peak = (vis_option == "⏰ 첨두시간 색상 표시 (16~18시)")
-    opt_incoming = (vis_option == "곧 들어오는 비행기 표시 (연보라색)")
+    opt_incoming = (vis_option == "곧 들어오는 비행기 표시 (형광색)")
     
     current_hour = datetime.now(KST).hour
     default_start_hour = max(0, current_hour - 1) if date_option == "오늘" else 0
@@ -620,5 +620,3 @@ else:
         e_html = generate_table_html(final[final['구역'] == '동편'], "➡ 동편", east_p, "#2563EB", opt_airline, opt_peak, opt_incoming, base_font_size, target_date, today_date)
         
         st.markdown(f'<div class="print-row">{e_html}{w_html}</div>', unsafe_allow_html=True)
-    else:
-        st.warning(f"⚠ 업로드한 승객 파일과 일치하는 {display_date_str} 실시간 도착편 정보가 없습니다.")
