@@ -318,7 +318,8 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
         except: pass
             
         if is_past_20_mins:
-            text_style = " text-decoration: line-through; color: #6B7280;"
+            # ⭐ 수정된 부분: 취소선 색상만 검은색(text-decoration-color: black;)으로 변경
+            text_style = " text-decoration: line-through; text-decoration-color: black; color: #6B7280;"
             row_style_css = "background-color: #F9FAFB;" 
         elif opt_incoming and is_blinking:
             row_style_css = "background-color: #FFFF00;"
