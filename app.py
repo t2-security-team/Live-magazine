@@ -69,7 +69,7 @@ def append_file_names(new_names):
     except Exception as e:
         st.sidebar.error(f"⚠ 파일 목록 저장 실패: {e}")
 
-@st.cache_data(ttl=21600, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def load_file_names():
     try:
         spreadsheet = get_spreadsheet()
@@ -83,7 +83,7 @@ def load_file_names():
         st.sidebar.error(f"⚠ 파일 목록 불러오기 실패: {e}")
     return []
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=21600, show_spinner=False)
 def load_from_sheet(sheet_name):
     try:
         spreadsheet = get_spreadsheet()
