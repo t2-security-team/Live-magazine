@@ -13,11 +13,10 @@ import concurrent.futures
 import threading
 from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 
-# ⭐ [추가된 부분] initial_sidebar_state="collapsed" 옵션을 넣어서 처음에 사이드바가 닫혀있게 만듭니다.
+# ⭐ [적용 완료] 처음 접속 시 사이드바 닫혀있게 설정 (initial_sidebar_state="collapsed")
 st.set_page_config(page_title="T2 보안검색 환승부 잡지", layout="wide", initial_sidebar_state="collapsed")
 
 # 300,000 밀리초(5분)마다 자동으로 앱을 재실행하여 실시간 연동
-# 자동 갱신 횟수를 변수(refresh_count)로 받습니다.
 refresh_count = st_autorefresh(interval=300000, limit=None, key="data_refresh")
 
 if "last_refresh_count" not in st.session_state:
@@ -77,7 +76,6 @@ def append_file_names(new_names):
     except Exception as e:
         st.sidebar.error(f"⚠ 파일 목록 저장 실패: {e}")
 
-# ⭐ [트래픽 방어] 구글 API는 30분(1800초) 동안 캐시 유지 (요청 최소화)
 @st.cache_data(ttl=1800, show_spinner=False)
 def load_file_names():
     try:
@@ -92,7 +90,6 @@ def load_file_names():
         st.sidebar.error(f"⚠ 파일 목록 불러오기 실패: {e}")
     return []
 
-# ⭐ [트래픽 방어] 구글 API는 30분(1800초) 동안 캐시 유지 (요청 최소화)
 @st.cache_data(ttl=1800, show_spinner=False)
 def load_from_sheet(sheet_name):
     try:
@@ -119,7 +116,6 @@ def clear_sheet(sheet_name):
     except Exception as e:
         st.sidebar.error(f"⚠ 데이터 비우기 실패: {e}")
 
-# ⭐ 충돌 방지를 위해 API ttl을 300초에서 290초로 단축
 @st.cache_data(ttl=290, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
     try:
@@ -172,13 +168,11 @@ def fetch_realtime_gate_info(search_date_str):
         st.sidebar.error(f"⚠ API 데이터 불러오기 예외 발생: {e}")
         return pd.DataFrame()
 
-# --- 5분 자동 갱신 시 캐시를 강제로 비우는 로직 ---
 if refresh_count > st.session_state["last_refresh_count"]:
-    fetch_realtime_gate_info.clear()  # API 캐시 강제 삭제
+    fetch_realtime_gate_info.clear() 
     st.session_state["last_refresh_count"] = refresh_count
     st.session_state["last_updated"] = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
     st.session_state["toast_msg"] = "자동 새로고침 완료!"
-# ------------------------------------------------
 
 if "toast_msg" in st.session_state:
     st.toast(st.session_state["toast_msg"], icon="✅")
@@ -282,9 +276,9 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
     
     df = df.sort_values('시간').reset_index(drop=True)
     
+    # ⭐ [적용 완료] 애니메이션 및 숫자 중앙 정렬, 비행기 아이콘 우측 끝 정렬 CSS
     html_parts.append("""
     <style>
-    /* ⭐ 아이콘을 무조건 셀의 오른쪽 끝으로 고정 (`position: absolute; right: 2px`) */
     .icon-container {
         position: absolute; 
         right: 2px;
@@ -305,7 +299,6 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
     .plane-landed {
         position: absolute; bottom: 0.5px; left: 50%; transform: translateX(-50%); color: #333333;
     }
-    /* ⭐ 숫자는 표의 정확한 가운데 정렬 (`justify-content: center`) */
     .pax-cell-container {
         position: relative;
         display: flex; 
@@ -386,6 +379,7 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
         pax_text = str(row.get("p_display", ""))
         pax_content = html.escape(pax_text)
         
+        # ⭐ [적용 완료] SVG 측면 비행기 교체
         if pax_text and (is_landing or is_landed):
             plane_svg = '<svg viewBox="0 0 24 24" width="16" height="15" fill="currentColor"><path d="M22,12 c0,1.1 -0.9,2 -2,2 H15 l-4,5 h-2 l2.5,-5 H6 l-2.5,2.5 H2 l1.5,-3.5 C3.2,12.7 3.2,11.3 3.5,11 L2,7.5 h1.5 l2.5,2.5 h5.5 l-2.5,-5 h2 l4,5 h5 c1.1,0 2,0.9 2,2 z" /></svg>'
             
@@ -411,7 +405,6 @@ with st.sidebar:
     file_list_placeholder = st.container()
     st.divider()
 
-    # 🔹 날짜 동적 계산 부분 🔹
     KST = timezone(timedelta(hours=9))
     today_date = datetime.now(KST)
     tomorrow_date = today_date + timedelta(days=1)
