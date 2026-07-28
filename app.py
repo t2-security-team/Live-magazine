@@ -1,5 +1,4 @@
 import html
-from streamlit_autorefresh import st_autorefresh
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -15,12 +14,6 @@ from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ct
 
 # ⭐ [적용 완료] 처음 접속 시 사이드바 닫혀있게 설정 (initial_sidebar_state="collapsed")
 st.set_page_config(page_title="T2 보안검색 환승부 잡지", layout="wide", initial_sidebar_state="collapsed")
-
-# 300,000 밀리초(5분)마다 자동으로 앱을 재실행하여 실시간 연동
-refresh_count = st_autorefresh(interval=300000, limit=None, key="data_refresh")
-
-if "last_refresh_count" not in st.session_state:
-    st.session_state["last_refresh_count"] = refresh_count
 
 if "last_updated" not in st.session_state:
     st.session_state["last_updated"] = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
@@ -168,12 +161,6 @@ def fetch_realtime_gate_info(search_date_str):
         st.sidebar.error(f"⚠ API 데이터 불러오기 예외 발생: {e}")
         return pd.DataFrame()
 
-if refresh_count > st.session_state["last_refresh_count"]:
-    fetch_realtime_gate_info.clear() 
-    st.session_state["last_refresh_count"] = refresh_count
-    st.session_state["last_updated"] = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
-    st.session_state["toast_msg"] = "자동 새로고침 완료!"
-
 if "toast_msg" in st.session_state:
     st.toast(st.session_state["toast_msg"], icon="✅")
     del st.session_state["toast_msg"]
@@ -276,7 +263,6 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
     
     df = df.sort_values('시간').reset_index(drop=True)
     
-    # ⭐ [적용 완료] 애니메이션 및 숫자 중앙 정렬, 비행기 아이콘 우측 끝 정렬 CSS
     html_parts.append("""
     <style>
     .icon-container {
@@ -379,7 +365,6 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
         pax_text = str(row.get("p_display", ""))
         pax_content = html.escape(pax_text)
         
-        # ⭐ [적용 완료] SVG 측면 비행기 교체
         if pax_text and (is_landing or is_landed):
             plane_svg = '<svg viewBox="0 0 24 24" width="16" height="15" fill="currentColor"><path d="M22,12 c0,1.1 -0.9,2 -2,2 H15 l-4,5 h-2 l2.5,-5 H6 l-2.5,2.5 H2 l1.5,-3.5 C3.2,12.7 3.2,11.3 3.5,11 L2,7.5 h1.5 l2.5,2.5 h5.5 l-2.5,-5 h2 l4,5 h5 c1.1,0 2,0.9 2,2 z" /></svg>'
             
@@ -440,16 +425,26 @@ with st.sidebar:
     st.divider()
 
     st.header("🔄 실시간 업데이트")
+    
+    # 🌟 수동 업데이트 버튼 (사용자가 누르면 공공데이터+구글시트 싹 다 갱신)
     if st.button("🔄 업데이트하기", use_container_width=True):
         fetch_realtime_gate_info.clear()
-        st.session_state["toast_msg"] = "게이트 정보를 최신 상태로 업데이트했습니다!"
+        load_from_sheet.clear()
+        load_file_names.clear()
+        st.session_state["toast_msg"] = "모든 정보를 최신 상태로 업데이트했습니다!"
         KST = timezone(timedelta(hours=9))
         st.session_state["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
         st.rerun()
         
     st.caption(f"마지막 업데이트: {st.session_state['last_updated']}")
-    
     st.caption("⚠️ 잦은 업데이트 시 트래픽 허용량 초과로 기능이 정지 될 수 있습니다.(자정 초기화)")
+
+    # 🌟 [트래픽 보호 기술] 백그라운드용 '공공데이터만' 갱신하는 숨겨진 버튼
+    if st.button("hidden_auto_refresh", key="hidden_auto"):
+        fetch_realtime_gate_info.clear() # 💡 구글 시트는 냅두고 게이트(공공데이터) 캐시만 비움!
+        KST = timezone(timedelta(hours=9))
+        st.session_state["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+        st.rerun()
 
     st.divider()
     
@@ -604,7 +599,7 @@ else:
             
             function doCap(win, doc, btn) {
                 var target = doc.querySelector('.block-container') || doc.querySelector('.main');
-                var hides = doc.querySelectorAll('[data-testid="stSidebar"], header, iframe');
+                var hides = doc.querySelectorAll('[data-testid="stSidebar"], header, iframe, .icon-container');
                 
                 var appView = doc.querySelector('.appview-container') || doc.querySelector('[data-testid="stAppViewContainer"]');
                 var mainView = doc.querySelector('.main');
@@ -617,12 +612,15 @@ else:
                 var oldTargetMarginTop = target.style.marginTop;
                 var oldTargetWidth = target.style.width;
                 var oldTargetMaxWidth = target.style.maxWidth;
+                
                 if(appView) { appView.style.overflow = 'visible'; appView.style.height = 'auto'; }
                 if(mainView) { mainView.style.overflow = 'visible'; mainView.style.height = 'auto'; }
+                
                 target.style.paddingTop = '10px';
                 target.style.marginTop = '0px';
                 target.style.width = '1100px'; 
                 target.style.maxWidth = '1100px';
+                
                 hides.forEach(function(e){ e.dataset.old = e.style.display; e.style.display = 'none'; });
                 
                 setTimeout(function() {
@@ -673,6 +671,27 @@ else:
                     parentWin.sessionStorage.setItem('stScrollPos', scrollTop);
                 }
             }, 500);
+
+            // 🌟 1. '숨겨진 버튼'을 화면에서 완전히 보이지 않게 처리
+            setInterval(function() {
+                var btns = parentDoc.querySelectorAll('button');
+                btns.forEach(function(b) {
+                    if(b.innerText.includes("hidden_auto_refresh")) {
+                        b.style.display = 'none';
+                    }
+                });
+            }, 50);
+
+            // 🌟 2. 5분마다 몰래 '숨겨진 버튼' 클릭 (구글 트래픽 보호용 업데이트)
+            setInterval(function() {
+                var buttons = parentDoc.querySelectorAll('button');
+                buttons.forEach(function(btn) {
+                    if(btn.innerText.includes("hidden_auto_refresh")) {
+                        btn.click();
+                    }
+                });
+            }, 300000);
+
             </script>
             """, height=45
         )
