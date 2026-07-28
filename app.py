@@ -13,7 +13,8 @@ import concurrent.futures
 import threading
 from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 
-st.set_page_config(page_title="T2 보안검색 환승부 잡지", layout="wide")
+# ⭐ [추가된 부분] initial_sidebar_state="collapsed" 옵션을 넣어서 처음에 사이드바가 닫혀있게 만듭니다.
+st.set_page_config(page_title="T2 보안검색 환승부 잡지", layout="wide", initial_sidebar_state="collapsed")
 
 # 300,000 밀리초(5분)마다 자동으로 앱을 재실행하여 실시간 연동
 # 자동 갱신 횟수를 변수(refresh_count)로 받습니다.
@@ -281,13 +282,49 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
     
     df = df.sort_values('시간').reset_index(drop=True)
     
+    html_parts.append("""
+    <style>
+    /* ⭐ 아이콘을 무조건 셀의 오른쪽 끝으로 고정 (`position: absolute; right: 2px`) */
+    .icon-container {
+        position: absolute; 
+        right: 2px;
+        width: 28px; height: 16px;
+        border-bottom: 1.5px solid #333333; 
+        overflow: hidden;
+    }
+    .plane-landing {
+        position: absolute; bottom: 0.5px; color: #333333;
+        animation: landing-anim 2.5s ease-in-out infinite;
+    }
+    @keyframes landing-anim {
+        0% { transform: translate(-15px, -12px) rotate(25deg); }
+        35% { transform: translate(1px, 0px) rotate(0deg); } 
+        70% { transform: translate(12px, 0px) rotate(0deg); } 
+        100% { transform: translate(27px, 0px) rotate(0deg); } 
+    }
+    .plane-landed {
+        position: absolute; bottom: 0.5px; left: 50%; transform: translateX(-50%); color: #333333;
+    }
+    /* ⭐ 숫자는 표의 정확한 가운데 정렬 (`justify-content: center`) */
+    .pax-cell-container {
+        position: relative;
+        display: flex; 
+        align-items: center; 
+        justify-content: center; 
+        width: 100%;
+        min-height: 20px;
+    }
+    @media print { .icon-container { display: none !important; } }
+    </style>
+    """)
+    
     html_parts.append(f'<table class="merged-table" style="font-size: {font_size}px !important;"><thead><tr>')
     html_parts.append(f'<th style="width:14%; font-size:{font_size}px !important;">시간</th>')
-    html_parts.append(f'<th style="width:18%; font-size:{font_size}px !important;">편명</th>')
+    html_parts.append(f'<th style="width:17%; font-size:{font_size}px !important;">편명</th>')
     html_parts.append(f'<th style="font-size:{font_size}px !important;">출발지</th>')
     html_parts.append(f'<th style="width:14%; font-size:{font_size}px !important;">게이트</th>')
-    html_parts.append(f'<th style="width:13%; font-size:{font_size}px !important;">승객</th>')
-    html_parts.append(f'<th style="width:13%; font-size:{font_size}px !important;">합계</th>')
+    html_parts.append(f'<th style="width:15%; font-size:{font_size}px !important;">승객</th>')
+    html_parts.append(f'<th style="width:12%; font-size:{font_size}px !important;">합계</th>')
     html_parts.append('</tr></thead><tbody>')
     
     df['hour_val'] = df['시간'].astype(str).str.extract(r'^(\d{1,2})').fillna(0).astype(int)
@@ -303,6 +340,8 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
         
         is_past_20_mins = False
         is_blinking = False
+        is_landing = False
+        is_landed = False
         
         try:
             time_parts = str(row['시간']).split(':')
@@ -310,15 +349,18 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
                 f_hour, f_min = int(time_parts[0]), int(time_parts[1])
                 flight_dt = target_date.replace(hour=f_hour, minute=f_min, second=0, microsecond=0)
                 
-                # 도착시간 기준으로부터 이후 10분 동안만 깜빡임(형광색) 적용
-                if flight_dt <= now_kst - timedelta(minutes=20):
-                    is_past_20_mins = True
-                elif flight_dt <= now_kst <= flight_dt + timedelta(minutes=10):
-                    is_blinking = True
+                diff_mins = (now_kst - flight_dt).total_seconds() / 60.0
+                
+                if diff_mins >= 20: 
+                    is_past_20_mins = True  
+                elif 0 <= diff_mins < 10: 
+                    is_blinking = True      
+                    is_landing = True       
+                elif 10 <= diff_mins < 20:
+                    is_landed = True        
         except: pass
             
         if is_past_20_mins:
-            # ⭐ 수정된 부분: 취소선 색상만 검은색(text-decoration-color: black;)으로 변경
             text_style = " text-decoration: line-through; text-decoration-color: black; color: #6B7280;"
             row_style_css = "background-color: #F9FAFB;" 
         elif opt_incoming and is_blinking:
@@ -340,9 +382,21 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
         편명_val = html.escape(str(row["편명"]))
         출발지_val = html.escape(str(row.get("출발지", "")))
         게이트_val = html.escape(str(row["게이트"]))
-        p_display_val = html.escape(str(row.get("p_display", "")))
+        
+        pax_text = str(row.get("p_display", ""))
+        pax_content = html.escape(pax_text)
+        
+        if pax_text and (is_landing or is_landed):
+            plane_svg = '<svg viewBox="0 0 24 24" width="16" height="15" fill="currentColor"><path d="M22,12 c0,1.1 -0.9,2 -2,2 H15 l-4,5 h-2 l2.5,-5 H6 l-2.5,2.5 H2 l1.5,-3.5 C3.2,12.7 3.2,11.3 3.5,11 L2,7.5 h1.5 l2.5,2.5 h5.5 l-2.5,-5 h2 l4,5 h5 c1.1,0 2,0.9 2,2 z" /></svg>'
+            
+            if is_landing:
+                icon_div = f'<div class="icon-container"><div class="plane-landing">{plane_svg}</div></div>'
+            else: 
+                icon_div = f'<div class="icon-container"><div class="plane-landed">{plane_svg}</div></div>'
+                
+            pax_content = f'<div class="pax-cell-container"><span>{html.escape(pax_text)}</span> {icon_div}</div>'
 
-        html_parts.append(f'<tr><td{td_style}>{시간_val}</td><td{td_style}>{편명_val}</td><td{td_style}>{출발지_val}</td><td{td_style}>{게이트_val}</td><td{td_style}>{p_display_val}</td>')
+        html_parts.append(f'<tr><td{td_style}>{시간_val}</td><td{td_style}>{편명_val}</td><td{td_style}>{출발지_val}</td><td{td_style}>{게이트_val}</td><td{td_style}>{pax_content}</td>')
         
         if current_h not in processed_hours:
             sum_font = font_size + 1
@@ -400,7 +454,6 @@ with st.sidebar:
         st.session_state["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
         st.rerun()
         
-    # 수정 후
     st.caption(f"마지막 업데이트: {st.session_state['last_updated']}")
     
     st.caption("⚠️ 잦은 업데이트 시 트래픽 허용량 초과로 기능이 정지 될 수 있습니다.(자정 초기화)")
