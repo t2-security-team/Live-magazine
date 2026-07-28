@@ -83,7 +83,7 @@ def load_file_names():
         st.sidebar.error(f"⚠ 파일 목록 불러오기 실패: {e}")
     return []
 
-@st.cache_data(ttl=21600, show_spinner=False)
+@st.cache_data(ttl=21600, show_spinner=False)  # 6시간 동안 구글 서버에 재요청 안 함 (트래픽 0)
 def load_from_sheet(sheet_name):
     try:
         spreadsheet = get_spreadsheet()
