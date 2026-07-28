@@ -292,6 +292,7 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
         justify-content: center; 
         width: 100%;
         min-height: 20px;
+        padding-right: 40px;
     }
     @media print { .icon-container { display: none !important; } }
     </style>
