@@ -7,6 +7,7 @@ from google.oauth2.service_account import Credentials
 import re
 import io
 import requests
+import time  # ⭐ [적용 완료] 재시도 대기 시간을 위한 time 모듈 추가
 from datetime import datetime, timedelta, timezone
 import concurrent.futures
 import threading
@@ -109,17 +110,32 @@ def clear_sheet(sheet_name):
     except Exception as e:
         st.sidebar.error(f"⚠ 데이터 비우기 실패: {e}")
 
+# ⭐ [적용 완료] 공공데이터포털 타임아웃 해결을 위한 재시도(Retry) 및 보안 보호 기능 추가
 @st.cache_data(ttl=290, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
     try:
         api_key = st.secrets["api"]["service_key"]
         url = "https://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp"
-        
         req_url = f"{url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=json&numOfRows=1800&pageNo=1"
         
-        response = requests.get(req_url, timeout=30)
-        if response.status_code != 200:
-            st.sidebar.error(f"⚠ API 서버 응답 오류 (상태 코드: {response.status_code})")
+        response = None
+        max_retries = 3  # 최대 3회 재시도
+        
+        for attempt in range(max_retries):
+            try:
+                # 연결 타임아웃 10초, 데이터 수신 타임아웃 25초로 분리
+                response = requests.get(req_url, timeout=(10, 25))
+                if response.status_code == 200:
+                    break
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+                if attempt == max_retries - 1:
+                    st.sidebar.error("⚠ 공공데이터포털 서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.")
+                    return pd.DataFrame()
+                time.sleep(2)  # 실패 시 2초 대기 후 재시도
+                
+        if not response or response.status_code != 200:
+            status = response.status_code if response else "연결 실패"
+            st.sidebar.error(f"⚠ API 서버 응답 오류 (상태 코드: {status})")
             return pd.DataFrame()
             
         try:
@@ -158,7 +174,11 @@ def fetch_realtime_gate_info(search_date_str):
             
         return df
     except Exception as e:
-        st.sidebar.error(f"⚠ API 데이터 불러오기 예외 발생: {e}")
+        # 인증키(serviceKey) 외부 노출 방지 마스킹
+        err_msg = str(e)
+        if "api_key" in locals():
+            err_msg = err_msg.replace(api_key, "****(SECRET)****")
+        st.sidebar.error(f"⚠ API 데이터 불러오기 예외 발생: {err_msg}")
         return pd.DataFrame()
 
 if "toast_msg" in st.session_state:
