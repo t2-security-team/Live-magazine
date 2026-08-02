@@ -110,23 +110,29 @@ def clear_sheet(sheet_name):
     except Exception as e:
         st.sidebar.error(f"⚠ 데이터 비우기 실패: {e}")
 
-# ⭐ [최종 완성형] 1순위/2순위 API의 모든 JSON 키 대소문자 차이를 100% 커버하는 이중화 함수
+# ⭐ [에러 12 해결완료] 공식 명세서의 정확한 서비스 URL(StatusOfPassengerFlightsDeOdp)을 반영한 이중화 함수
 @st.cache_data(ttl=290, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
     try:
         api_key = st.secrets["api"]["service_key"]
-        base_url = "https://apis.data.go.kr/B551177/statusOfAllFltDeOdp"
         
-        # 1순위: 전체 항공기 도착 조회 / 2순위: 여객기 도착 조회
+        # ⭐ 1순위와 2순위의 실제 전체 URL(Full URL)을 공식 명세서 경로로 각각 독립 지정
         endpoints = [
-            ("/getFltArrivalsDeOdp", "1순위(전체 항공기)"),
-            ("/getPassengerArrivalsDeOdp", "2순위(여객기)")
+            (
+                "https://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp",
+                "1순위(전체 항공기)"
+            ),
+            (
+                # [공식 명세서 반영] 여객기 운항 현황 상세 조회 서비스 정확한 URL
+                "https://apis.data.go.kr/B551177/StatusOfPassengerFlightsDeOdp/getPassengerArrivalsDeOdp",
+                "2순위(여객기)"
+            )
         ]
         
-        for endpoint, name in endpoints:
-            req_url = f"{base_url}{endpoint}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=json&numOfRows=1800&pageNo=1"
+        for url, name in endpoints:
+            req_url = f"{url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=json&numOfRows=1800&pageNo=1"
             
-            for attempt in range(2):  # 각 API당 최대 2회 시도
+            for attempt in range(2):
                 try:
                     response = requests.get(req_url, timeout=(6, 15))
                     if response.status_code == 200:
@@ -141,11 +147,9 @@ def fetch_realtime_gate_info(search_date_str):
                                     item_data = [item_data]
                                     
                                 for item in item_data:
-                                    # 편명: flightId 또는 fid 모두 확인
                                     flight_id = item.get('flightId') or item.get('fid') or ''
                                     flight_id = str(flight_id).replace('DAL', 'DL').replace('KAL', 'KE').replace('AAR', 'OZ')
                                     
-                                    # 시간: estimatedDatetime/DateTime, scheduleDatetime/DateTime 모든 변형 대응
                                     time_str = str(
                                         item.get('estimatedDatetime') or 
                                         item.get('estimatedDateTime') or 
@@ -155,7 +159,6 @@ def fetch_realtime_gate_info(search_date_str):
                                     raw_time = time_str[-4:] if len(time_str) >= 4 else time_str
                                     formatted_time = f"{raw_time[:2]}:{raw_time[2:]}" if len(raw_time) == 4 else raw_time
                                     
-                                    # 게이트/출구: gateNumber/gatenumber, fstandPosition/fstandposition, exitNumber/exitnumber 완벽 대응
                                     items.append({
                                         '편명': clean_flight_no(flight_id),
                                         '시간': formatted_time,
@@ -172,7 +175,6 @@ def fetch_realtime_gate_info(search_date_str):
                             pass
                 except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
                     time.sleep(1)
-            # 1순위 실패 시 조용히 2순위(/getPassengerArrivalsDeOdp)로 루프 이동
 
         st.sidebar.error("⚠ 공공데이터포털 서버의 응답이 일시적으로 지연되고 있습니다. 잠시 후 [🔄 업데이트하기]를 눌러주세요.")
         return pd.DataFrame()
