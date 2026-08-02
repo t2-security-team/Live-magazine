@@ -110,7 +110,7 @@ def clear_sheet(sheet_name):
     except Exception as e:
         st.sidebar.error(f"⚠ 데이터 비우기 실패: {e}")
 
-# ⭐ [적용 완료] 공공데이터포털 타임아웃 해결을 위한 재시도(Retry) 및 보안 보호 기능 추가
+# ⭐ [스마트 에러 판독기 탑재] 공공데이터포털의 에러 코드(01, 12, 20, 22, 30 등)를 분석해 한글로 알려주는 함수
 @st.cache_data(ttl=290, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
     try:
@@ -123,25 +123,42 @@ def fetch_realtime_gate_info(search_date_str):
         
         for attempt in range(max_retries):
             try:
-                # 연결 타임아웃 10초, 데이터 수신 타임아웃 25초로 분리
                 response = requests.get(req_url, timeout=(10, 25))
                 if response.status_code == 200:
                     break
             except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
                 if attempt == max_retries - 1:
-                    st.sidebar.error("⚠ 공공데이터포털 서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.")
+                    st.sidebar.error("⚠ 공공데이터포털 서버와의 네트워크 연결이 타임아웃되었습니다.")
                     return pd.DataFrame()
-                time.sleep(2)  # 실패 시 2초 대기 후 재시도
+                time.sleep(2)
                 
-        if not response or response.status_code != 200:
-            status = response.status_code if response else "연결 실패"
-            st.sidebar.error(f"⚠ API 서버 응답 오류 (상태 코드: {status})")
+        if not response:
+            st.sidebar.error("⚠ API 서버에 연결할 수 없습니다.")
+            return pd.DataFrame()
+
+        # ⭐ [핵심 추가 기능] 공공데이터포털 서버가 반환한 에러 코드/메시지 정밀 판독
+        err_text = response.text
+        if "NORMAL SERVICE" not in err_text and ("resultCode" in err_text or "returnReasonCode" in err_text or "ERROR" in err_text):
+            if "22" in err_text or "LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS" in err_text:
+                st.sidebar.error("🚨 [에러 22] 일일 API 호출 허용량(트래픽)을 모두 초과했습니다! (자정 00시 리셋)")
+            elif "30" in err_text or "SERVICE_KEY_IS_NOT_REGISTERED" in err_text:
+                st.sidebar.error("🚨 [에러 30] 등록되지 않은 인증키이거나 서비스 활용신청이 완료되지 않았습니다.")
+            elif "20" in err_text or "SERVICE_ACCESS_DENIED" in err_text:
+                st.sidebar.error("🚨 [에러 20] API 접근 거부: 해당 서비스 권한이 없거나 중지되었습니다.")
+            elif "12" in err_text or "NO_OPENAPI_SERVICE" in err_text:
+                st.sidebar.error("🚨 [에러 12] 호출하려는 API 주소(URL) 경로가 존재하지 않거나 폐기되었습니다.")
+            elif "23" in err_text or "PER_SECOND" in err_text:
+                st.sidebar.error("🚨 [에러 23] 단시간에 너무 많은 요청이 몰려 서버가 일시 차단했습니다.")
+            elif "01" in err_text or "APPLICATION_ERROR" in err_text:
+                st.sidebar.error("🚨 [에러 01] 공공데이터포털 내부 서버 오류입니다. (잠시 후 복구됨)")
+            else:
+                st.sidebar.error("🚨 [API 통신 오류] 서버에서 아래 메시지를 반환했습니다:\n" + err_text[:120])
             return pd.DataFrame()
             
         try:
             data = response.json()
         except requests.exceptions.JSONDecodeError:
-            st.sidebar.error("⚠ 공공데이터포털 서버 응답이 지연되고 있습니다. (일시적 장애)")
+            st.sidebar.error("⚠ 공공데이터포털 서버가 JSON 대신 올바르지 않은 응답을 보냈습니다.")
             return pd.DataFrame()
             
         items = []
@@ -174,7 +191,6 @@ def fetch_realtime_gate_info(search_date_str):
             
         return df
     except Exception as e:
-        # 인증키(serviceKey) 외부 노출 방지 마스킹
         err_msg = str(e)
         if "api_key" in locals():
             err_msg = err_msg.replace(api_key, "****(SECRET)****")
