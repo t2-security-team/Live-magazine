@@ -13,7 +13,7 @@ import concurrent.futures
 import threading
 from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 
-# ⭐ 처음 접속 시 사이드바 닫혀있게 설정 (initial_sidebar_state="collapsed")
+# ⭐ [적용 완료] 처음 접속 시 사이드바 닫혀있게 설정 (initial_sidebar_state="collapsed")
 st.set_page_config(page_title="T2 보안검색 환승부 잡지", layout="wide", initial_sidebar_state="collapsed")
 
 if "last_updated" not in st.session_state:
@@ -110,14 +110,14 @@ def clear_sheet(sheet_name):
     except Exception as e:
         st.sidebar.error(f"⚠ 데이터 비우기 실패: {e}")
 
-# ⭐ [적용 완료] 1순위(전체 항공기) 실패 시 2순위(여객기)로 즉시 전환되는 이중화(Fallback) 함수
+# ⭐ [최종 완성형] 1순위/2순위 API의 모든 JSON 키 대소문자 차이를 100% 커버하는 이중화 함수
 @st.cache_data(ttl=290, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
     try:
         api_key = st.secrets["api"]["service_key"]
         base_url = "https://apis.data.go.kr/B551177/statusOfAllFltDeOdp"
         
-        # 1순위: 기존 전체 항공기 도착 조회 / 2순위: 사진으로 확인한 여객기 도착 조회
+        # 1순위: 전체 항공기 도착 조회 / 2순위: 여객기 도착 조회
         endpoints = [
             ("/getFltArrivalsDeOdp", "1순위(전체 항공기)"),
             ("/getPassengerArrivalsDeOdp", "2순위(여객기)")
@@ -141,17 +141,27 @@ def fetch_realtime_gate_info(search_date_str):
                                     item_data = [item_data]
                                     
                                 for item in item_data:
-                                    flight_id = item.get('flightId', '').replace('DAL', 'DL').replace('KAL', 'KE').replace('AAR', 'OZ')
-                                    time_str = str(item.get('estimatedDatetime') or item.get('scheduleDatetime') or "")
+                                    # 편명: flightId 또는 fid 모두 확인
+                                    flight_id = item.get('flightId') or item.get('fid') or ''
+                                    flight_id = str(flight_id).replace('DAL', 'DL').replace('KAL', 'KE').replace('AAR', 'OZ')
+                                    
+                                    # 시간: estimatedDatetime/DateTime, scheduleDatetime/DateTime 모든 변형 대응
+                                    time_str = str(
+                                        item.get('estimatedDatetime') or 
+                                        item.get('estimatedDateTime') or 
+                                        item.get('scheduleDatetime') or 
+                                        item.get('scheduleDateTime') or ""
+                                    )
                                     raw_time = time_str[-4:] if len(time_str) >= 4 else time_str
                                     formatted_time = f"{raw_time[:2]}:{raw_time[2:]}" if len(raw_time) == 4 else raw_time
                                     
+                                    # 게이트/출구: gateNumber/gatenumber, fstandPosition/fstandposition, exitNumber/exitnumber 완벽 대응
                                     items.append({
                                         '편명': clean_flight_no(flight_id),
                                         '시간': formatted_time,
-                                        '게이트': item.get('gateNumber') or item.get('fstandPosition', ''),
+                                        '게이트': item.get('gateNumber') or item.get('gatenumber') or item.get('fstandPosition') or item.get('fstandposition', ''),
                                         '출발지': item.get('airportCode', '') or item.get('airport', ''),
-                                        '출구': item.get('exitNumber', '')
+                                        '출구': item.get('exitNumber') or item.get('exitnumber', '')
                                     })
                                 
                                 df = pd.DataFrame(items)
@@ -441,7 +451,7 @@ with st.sidebar:
 
     st.header("🔄 실시간 업데이트")
     
-    # 🌟 수동 업데이트 버튼
+    # 🌟 수동 업데이트 버튼 (사용자가 누르면 공공데이터+구글시트 싹 다 갱신)
     if st.button("🔄 업데이트하기", use_container_width=True):
         fetch_realtime_gate_info.clear()
         load_from_sheet.clear()
@@ -454,9 +464,9 @@ with st.sidebar:
     st.caption(f"마지막 업데이트: {st.session_state['last_updated']}")
     st.caption("⚠️ 잦은 업데이트 시 트래픽 허용량 초과로 기능이 정지 될 수 있습니다.(자정 초기화)")
 
-    # 🌟 [트래픽 보호 기술] 백그라운드용 공공데이터만 갱신하는 숨겨진 버튼
+    # 🌟 [트래픽 보호 기술] 백그라운드용 '공공데이터만' 갱신하는 숨겨진 버튼
     if st.button("hidden_auto_refresh", key="hidden_auto"):
-        fetch_realtime_gate_info.clear()
+        fetch_realtime_gate_info.clear() # 💡 구글 시트는 냅두고 게이트(공공데이터) 캐시만 비움!
         KST = timezone(timedelta(hours=9))
         st.session_state["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
         st.rerun()
@@ -687,7 +697,7 @@ else:
                 }
             }, 500);
 
-            // 1. '숨겨진 버튼'을 화면에서 완전히 보이지 않게 처리
+            // 🌟 1. '숨겨진 버튼'을 화면에서 완전히 보이지 않게 처리
             setInterval(function() {
                 var btns = parentDoc.querySelectorAll('button');
                 btns.forEach(function(b) {
@@ -697,7 +707,7 @@ else:
                 });
             }, 50);
 
-            // 2. 5분마다 몰래 '숨겨진 버튼' 클릭 (구글 트래픽 보호용 업데이트)
+            // 🌟 2. 5분마다 몰래 '숨겨진 버튼' 클릭 (구글 트래픽 보호용 업데이트)
             setInterval(function() {
                 var buttons = parentDoc.querySelectorAll('button');
                 buttons.forEach(function(btn) {
