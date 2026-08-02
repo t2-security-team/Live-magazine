@@ -7,7 +7,7 @@ from google.oauth2.service_account import Credentials
 import re
 import io
 import requests
-import time
+import time  # ⭐ [적용 완료] 재시도 대기 시간을 위한 time 모듈 추가
 from datetime import datetime, timedelta, timezone
 import concurrent.futures
 import threading
@@ -110,78 +110,71 @@ def clear_sheet(sheet_name):
     except Exception as e:
         st.sidebar.error(f"⚠ 데이터 비우기 실패: {e}")
 
-# ⭐ [파라미터 에러 해결완료] 1순위/2순위 API의 URL 및 요청 파라미터명을 각각 정확히 분리한 이중화 함수
+# ⭐ [적용 완료] 공공데이터포털 타임아웃 해결을 위한 재시도(Retry) 및 보안 보호 기능 추가
 @st.cache_data(ttl=290, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
     try:
         api_key = st.secrets["api"]["service_key"]
+        url = "https://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp"
+        req_url = f"{url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=json&numOfRows=1800&pageNo=1"
         
-        # ⭐ 1순위(searchDate)와 2순위(searchday)의 파라미터 규격을 공식 명세서에 맞게 개별 적용
-        endpoints = [
-            (
-                "https://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp",
-                f"serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=json&numOfRows=1800&pageNo=1",
-                "1순위(전체 항공기)"
-            ),
-            (
-                # [공식 명세서 반영] 여객기 API 전용 파라미터: searchday, from_time, to_time, inqtimechcd
-                "https://apis.data.go.kr/B551177/StatusOfPassengerFlightsDeOdp/getPassengerArrivalsDeOdp",
-                f"serviceKey={api_key}&inqtimechcd=S&searchday={search_date_str}&from_time=0000&to_time=2400&lang=K&type=json&numOfRows=1800&pageNo=1",
-                "2순위(여객기)"
-            )
-        ]
+        response = None
+        max_retries = 3  # 최대 3회 재시도
         
-        for url, params, name in endpoints:
-            req_url = f"{url}?{params}"
+        for attempt in range(max_retries):
+            try:
+                # 연결 타임아웃 10초, 데이터 수신 타임아웃 25초로 분리
+                response = requests.get(req_url, timeout=(10, 25))
+                if response.status_code == 200:
+                    break
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+                if attempt == max_retries - 1:
+                    st.sidebar.error("⚠ 공공데이터포털 서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.")
+                    return pd.DataFrame()
+                time.sleep(2)  # 실패 시 2초 대기 후 재시도
+                
+        if not response or response.status_code != 200:
+            status = response.status_code if response else "연결 실패"
+            st.sidebar.error(f"⚠ API 서버 응답 오류 (상태 코드: {status})")
+            return pd.DataFrame()
             
-            for attempt in range(2):
-                try:
-                    response = requests.get(req_url, timeout=(6, 15))
-                    if response.status_code == 200:
-                        try:
-                            data = response.json()
-                            items = []
-                            if 'response' in data and 'body' in data['response'] and 'items' in data['response']['body']:
-                                item_data = data['response']['body']['items']
-                                if isinstance(item_data, dict) and 'item' in item_data:
-                                    item_data = item_data['item']
-                                elif not isinstance(item_data, list):
-                                    item_data = [item_data]
-                                    
-                                for item in item_data:
-                                    flight_id = item.get('flightId') or item.get('fid') or ''
-                                    flight_id = str(flight_id).replace('DAL', 'DL').replace('KAL', 'KE').replace('AAR', 'OZ')
-                                    
-                                    time_str = str(
-                                        item.get('estimatedDatetime') or 
-                                        item.get('estimatedDateTime') or 
-                                        item.get('scheduleDatetime') or 
-                                        item.get('scheduleDateTime') or ""
-                                    )
-                                    raw_time = time_str[-4:] if len(time_str) >= 4 else time_str
-                                    formatted_time = f"{raw_time[:2]}:{raw_time[2:]}" if len(raw_time) == 4 else raw_time
-                                    
-                                    items.append({
-                                        '편명': clean_flight_no(flight_id),
-                                        '시간': formatted_time,
-                                        '게이트': item.get('gateNumber') or item.get('gatenumber') or item.get('fstandPosition') or item.get('fstandposition', ''),
-                                        '출발지': item.get('airportCode', '') or item.get('airport', ''),
-                                        '출구': item.get('exitNumber') or item.get('exitnumber', '')
-                                    })
-                                
-                                df = pd.DataFrame(items)
-                                if not df.empty:
-                                    df = df[df['편명'].str.startswith(('KE', 'OZ', 'DL'), na=False)]
-                                return df
-                        except requests.exceptions.JSONDecodeError:
-                            pass
-                except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
-                    time.sleep(1)
-
-        st.sidebar.error("⚠ 공공데이터포털 서버의 응답이 일시적으로 지연되고 있습니다. 잠시 후 [🔄 업데이트하기]를 눌러주세요.")
-        return pd.DataFrame()
+        try:
+            data = response.json()
+        except requests.exceptions.JSONDecodeError:
+            st.sidebar.error("⚠ 공공데이터포털 서버 응답이 지연되고 있습니다. (일시적 장애)")
+            return pd.DataFrame()
+            
+        items = []
+        if 'response' in data and 'body' in data['response'] and 'items' in data['response']['body']:
+            item_data = data['response']['body']['items']
+            if isinstance(item_data, dict) and 'item' in item_data:
+                item_data = item_data['item']
+            elif not isinstance(item_data, list):
+                item_data = [item_data]
+                
+            for item in item_data:
+                flight_id = item.get('flightId', '').replace('DAL', 'DL').replace('KAL', 'KE').replace('AAR', 'OZ')
+                
+                time_str = str(item.get('estimatedDatetime') or item.get('scheduleDatetime') or "")
+                raw_time = time_str[-4:] if len(time_str) >= 4 else time_str
+                formatted_time = f"{raw_time[:2]}:{raw_time[2:]}" if len(raw_time) == 4 else raw_time
+                
+                items.append({
+                    '편명': clean_flight_no(flight_id),
+                    '시간': formatted_time,
+                    '게이트': item.get('gateNumber') or item.get('fstandPosition', ''),
+                    '출발지': item.get('airportCode', '') or item.get('airport', ''),
+                    '출구': item.get('exitNumber', '')
+                })
         
+        df = pd.DataFrame(items)
+        
+        if not df.empty:
+            df = df[df['편명'].str.startswith(('KE', 'OZ', 'DL'), na=False)]
+            
+        return df
     except Exception as e:
+        # 인증키(serviceKey) 외부 노출 방지 마스킹
         err_msg = str(e)
         if "api_key" in locals():
             err_msg = err_msg.replace(api_key, "****(SECRET)****")
