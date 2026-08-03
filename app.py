@@ -423,11 +423,12 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
     return "".join(html_parts)
 
 with st.sidebar:
-    # ⭐ [1. 개선] '실시간 업데이트' 영역을 사이드바 맨 꼭대기(데이터 목록 바로 위)로 이동 & 제목-버튼 틈새 여백 최소화
-    st.markdown("<h3 style='margin-top: 0px; margin-bottom: 6px; font-size: 19px; font-weight: bold; color: #1E3A8A;'>🔄 실시간 업데이트</h3>", unsafe_allow_html=True)
-    
+    # ⭐ [1. 개선] 보이지 않는 자동새로고침(autorefresh) 컴포넌트를 맨 꼭대기로 빼서 글자 사이에 빈 줄 공간을 만들지 않도록 조치
     if st_autorefresh:
         st_autorefresh(interval=300000, key="data_autorefresh")
+
+    # ⭐ [2. 개선] 제목 아래 마진을 '-15px'로 강제 밀착시켜 버튼과 제목 사이의 흰색 여백을 완전히 제거
+    st.markdown("<h3 style='margin: 0px 0px -15px 0px !important; padding: 0px !important; font-size: 19px; font-weight: bold; color: #1E3A8A;'>🔄 실시간 업데이트</h3>", unsafe_allow_html=True)
     
     if st.button("🔄 업데이트하기", use_container_width=True):
         fetch_realtime_gate_info.clear()
@@ -443,7 +444,7 @@ with st.sidebar:
 
     st.divider()
 
-    # ⭐ [2. 개선] 공유중인 승객 데이터 목록 자리 (업데이트 버튼 바로 밑에 위치)
+    # ⭐ 공유중인 승객 데이터 목록 (업데이트 버튼 바로 밑에 위치)
     file_list_placeholder = st.container()
     st.divider()
 
