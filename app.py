@@ -110,40 +110,62 @@ def clear_sheet(sheet_name):
     except Exception as e:
         st.sidebar.error(f"⚠ 데이터 비우기 실패: {e}")
 
-# ⭐ [100% 브라우저 동일 작동] 브라우저에서 성공한 type=xml 응답을 직접 읽는 최종 게이트 조회 함수
+# ⭐ [완벽 해결] 브라우저(Chrome) 위장 헤더 + 공백 제거 + 메인 화면 에러 알림이 적용된 최종 XML 조회 함수
 @st.cache_data(ttl=290, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
-    import xml.etree.ElementTree as ET  # XML 파싱을 위해 함수 내부 안전 임포트
+    import xml.etree.ElementTree as ET  # XML 파싱용 안전 임포트
     try:
-        api_key = st.secrets["api"]["service_key"]
+        # 1. 시크릿 키 끝에 숨어있을 수 있는 공백/줄바꿈 완벽 제거
+        api_key = str(st.secrets["api"]["service_key"]).strip()
         url = "https://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp"
         
-        # ⭐ 아까 브라우저에서 100% 성공한 type=xml 규격으로 요청
+        # 2. 브라우저에서 100% 성공한 type=xml 주소
         req_url = f"{url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=xml&numOfRows=1800&pageNo=1"
+        
+        # ⭐ 3. [핵심] Streamlit 해외 클라우드 IP 차단 방지를 위한 Chrome 브라우저 위장 헤더
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        }
         
         response = None
         max_retries = 3
         
         for attempt in range(max_retries):
             try:
-                response = requests.get(req_url, timeout=(10, 25))
+                # 위장 헤더(headers=headers)를 함께 실어서 보냄
+                response = requests.get(req_url, headers=headers, timeout=(10, 25))
                 if response.status_code == 200:
                     break
             except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
                 if attempt == max_retries - 1:
-                    st.sidebar.error("⚠ 공공데이터포털 서버와의 네트워크 연결이 타임아웃되었습니다.")
+                    st.error("⚠ [네트워크 오류] 공공데이터포털 서버 연결이 타임아웃되었습니다.")
                     return pd.DataFrame()
                 time.sleep(2)
                 
         if not response or response.status_code != 200:
-            st.sidebar.error("⚠ API 서버에 연결할 수 없습니다.")
+            st.error(f"⚠ [통신 오류] API 서버 응답 실패 (상태 코드: {response.status_code if response else '연결 불가'})")
             return pd.DataFrame()
 
-        # ⭐ 브라우저에서 확인한 XML 구조(<item>)를 직접 파싱
+        # ⭐ 4. 서버가 에러 메시지(XML)를 보냈는지 감지하고 메인 화면에 즉시 표시
+        err_text = response.text
+        if "NORMAL SERVICE" not in err_text and ("returnReasonCode" in err_text or "errMsg" in err_text):
+            if "22" in err_text or "EXCEEDS" in err_text:
+                st.error("🚨 [에러 22] 일일 API 호출 허용량(트래픽)을 모두 초과했습니다! (자정 리셋)")
+            elif "30" in err_text or "NOT_REGISTERED" in err_text:
+                st.error("🚨 [에러 30] 등록되지 않은 인증키이거나 활용신청 승인 오류입니다.")
+            elif "04" in err_text or "HTTP_ERROR" in err_text:
+                st.error("🚨 [에러 04] 인천공항 연계 DB 서버 오류입니다. (잠시 후 다시 시도해 주세요)")
+            elif "12" in err_text or "NO_OPENAPI_SERVICE" in err_text:
+                st.error("🚨 [에러 12] API 주소(URL) 경로 오류입니다.")
+            else:
+                st.error(f"🚨 [API 오류] 서버 응답 내용: {err_text[:150]}")
+            return pd.DataFrame()
+
+        # 5. 정상 XML 파싱 (<item> 추출)
         try:
-            root = ET.fromstring(response.text)
+            root = ET.fromstring(err_text)
         except ET.ParseError:
-            st.sidebar.error("⚠ 공공데이터포털 서버 응답을 파싱할 수 없습니다. (일시적 장애)")
+            st.error("⚠ [파싱 오류] 서버 응답을 XML로 변환할 수 없습니다.")
             return pd.DataFrame()
             
         items = []
@@ -172,49 +194,7 @@ def fetch_realtime_gate_info(search_date_str):
         err_msg = str(e)
         if "api_key" in locals():
             err_msg = err_msg.replace(api_key, "****(SECRET)****")
-        st.sidebar.error(f"⚠ API 데이터 불러오기 예외 발생: {err_msg}")
-        return pd.DataFrame()
-            
-        try:
-            data = response.json()
-        except requests.exceptions.JSONDecodeError:
-            st.sidebar.error("⚠ 공공데이터포털 서버가 JSON 대신 올바르지 않은 응답을 보냈습니다.")
-            return pd.DataFrame()
-            
-        items = []
-        if 'response' in data and 'body' in data['response'] and 'items' in data['response']['body']:
-            item_data = data['response']['body']['items']
-            if isinstance(item_data, dict) and 'item' in item_data:
-                item_data = item_data['item']
-            elif not isinstance(item_data, list):
-                item_data = [item_data]
-                
-            for item in item_data:
-                flight_id = item.get('flightId', '').replace('DAL', 'DL').replace('KAL', 'KE').replace('AAR', 'OZ')
-                
-                time_str = str(item.get('estimatedDatetime') or item.get('scheduleDatetime') or "")
-                raw_time = time_str[-4:] if len(time_str) >= 4 else time_str
-                formatted_time = f"{raw_time[:2]}:{raw_time[2:]}" if len(raw_time) == 4 else raw_time
-                
-                items.append({
-                    '편명': clean_flight_no(flight_id),
-                    '시간': formatted_time,
-                    '게이트': item.get('gateNumber') or item.get('fstandPosition', ''),
-                    '출발지': item.get('airportCode', '') or item.get('airport', ''),
-                    '출구': item.get('exitNumber', '')
-                })
-        
-        df = pd.DataFrame(items)
-        
-        if not df.empty:
-            df = df[df['편명'].str.startswith(('KE', 'OZ', 'DL'), na=False)]
-            
-        return df
-    except Exception as e:
-        err_msg = str(e)
-        if "api_key" in locals():
-            err_msg = err_msg.replace(api_key, "****(SECRET)****")
-        st.sidebar.error(f"⚠ API 데이터 불러오기 예외 발생: {err_msg}")
+        st.error(f"⚠ [예외 발생] API 데이터 처리 중 오류: {err_msg}")
         return pd.DataFrame()
 
 if "toast_msg" in st.session_state:
