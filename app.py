@@ -199,12 +199,17 @@ if "toast_msg" in st.session_state:
     st.toast(st.session_state["toast_msg"], icon="✅")
     del st.session_state["toast_msg"]
 
+# ⭐ [CSS 개선] [data-testid="stSidebar"] block-container의 상단 패딩을 줄여서 사이드바 맨 위 휑한 여백을 제거함!
 st.markdown("""
     <style>
     .main .block-container { padding-top: 0px !important; padding-bottom: 0px !important; margin-top: -15px !important; }
     div[data-testid="stVerticalBlock"] { gap: 0px !important; }
     .element-container { margin-bottom: 0px !important; }
     iframe { margin-bottom: 0px !important; min-height: 45px !important; }
+    
+    [data-testid="stSidebar"] > div:first-child {
+        padding-top: 1.5rem !important;
+    }
     
     .file-box { background-color:#f0f7ff; padding:15px; border-radius:5px; margin-bottom:15px; border: 1px solid #3b82f6; display: block; overflow: visible; }
     .file-item { font-size:13px; margin: 0 0 6px 10px !important; line-height: 1.5 !important; color: #1f2937; font-weight: normal; word-break: break-all; }
@@ -423,11 +428,11 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
     return "".join(html_parts)
 
 with st.sidebar:
-    # ⭐ [1. 개선] 보이지 않는 자동새로고침(autorefresh) 컴포넌트를 맨 꼭대기로 빼서 글자 사이에 빈 줄 공간을 만들지 않도록 조치
+    # ⭐ 보이지 않는 자동새로고침(autorefresh) 컴포넌트 최상단 배치
     if st_autorefresh:
         st_autorefresh(interval=300000, key="data_autorefresh")
 
-    # ⭐ [2. 개선] 제목 아래 마진을 '-15px'로 강제 밀착시켜 버튼과 제목 사이의 흰색 여백을 완전히 제거
+    # ⭐ 제목-버튼 여백 제거
     st.markdown("<h3 style='margin: 0px 0px -15px 0px !important; padding: 0px !important; font-size: 19px; font-weight: bold; color: #1E3A8A;'>🔄 실시간 업데이트</h3>", unsafe_allow_html=True)
     
     if st.button("🔄 업데이트하기", use_container_width=True):
@@ -440,7 +445,8 @@ with st.sidebar:
         st.rerun()
         
     st.caption(f"마지막 업데이트: {st.session_state['last_updated']}")
-    st.caption("⚠️ 잦은 업데이트 시 트래픽 허용량 초과로 기능이 정지 될 수 있습니다.(자정 초기화)")
+    # ⭐ 문구를 '자주 눌러주세요!'로 변경 (트래픽 경고 삭제)
+    st.caption("💡 게이트 정보가 변동될 수 있으니 [🔄 업데이트하기]를 자주 눌러주세요!")
 
     st.divider()
 
