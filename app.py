@@ -423,6 +423,27 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
     return "".join(html_parts)
 
 with st.sidebar:
+    # ⭐ [1. 개선] '실시간 업데이트' 영역을 사이드바 맨 꼭대기(데이터 목록 바로 위)로 이동 & 제목-버튼 틈새 여백 최소화
+    st.markdown("<h3 style='margin-top: 0px; margin-bottom: 6px; font-size: 19px; font-weight: bold; color: #1E3A8A;'>🔄 실시간 업데이트</h3>", unsafe_allow_html=True)
+    
+    if st_autorefresh:
+        st_autorefresh(interval=300000, key="data_autorefresh")
+    
+    if st.button("🔄 업데이트하기", use_container_width=True):
+        fetch_realtime_gate_info.clear()
+        load_from_sheet.clear()
+        load_file_names.clear()
+        st.session_state["toast_msg"] = "모든 정보를 최신 상태로 업데이트했습니다!"
+        KST = timezone(timedelta(hours=9))
+        st.session_state["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+        st.rerun()
+        
+    st.caption(f"마지막 업데이트: {st.session_state['last_updated']}")
+    st.caption("⚠️ 잦은 업데이트 시 트래픽 허용량 초과로 기능이 정지 될 수 있습니다.(자정 초기화)")
+
+    st.divider()
+
+    # ⭐ [2. 개선] 공유중인 승객 데이터 목록 자리 (업데이트 버튼 바로 밑에 위치)
     file_list_placeholder = st.container()
     st.divider()
 
@@ -458,26 +479,6 @@ with st.sidebar:
     time_range = st.slider("조회 시간대 (시)", 0, 24, (default_start_hour, 24))
     base_font_size = st.slider("🔠 표 글자 조절 (px)", min_value=10, max_value=17, value=13, step=1)
     
-    st.divider()
-
-    st.header("🔄 실시간 업데이트")
-    
-    # ⭐ [4번 수정] 5분(300,000ms)마다 부드럽고 안전하게 화면 자동 새로고침 실행
-    if st_autorefresh:
-        st_autorefresh(interval=300000, key="data_autorefresh")
-    
-    if st.button("🔄 업데이트하기", use_container_width=True):
-        fetch_realtime_gate_info.clear()
-        load_from_sheet.clear()
-        load_file_names.clear()
-        st.session_state["toast_msg"] = "모든 정보를 최신 상태로 업데이트했습니다!"
-        KST = timezone(timedelta(hours=9))
-        st.session_state["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
-        st.rerun()
-        
-    st.caption(f"마지막 업데이트: {st.session_state['last_updated']}")
-    st.caption("⚠️ 잦은 업데이트 시 트래픽 허용량 초과로 기능이 정지 될 수 있습니다.(자정 초기화)")
-
     st.divider()
     
     st.header("🛠️ 시스템 복구")
