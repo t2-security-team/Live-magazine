@@ -557,15 +557,6 @@ else:
         dup_cols.append('날짜')
     df_p = df_p.drop_duplicates(dup_cols)
     
-  # ⭐ [2번 수정] 구글 시트에는 있지만 실시간 공항 API에서 찾지 못한 항공편 감지 (빈 칸 및 공백 제외)
-    valid_pax = df_p[df_p['편명'].astype(str).str.strip().replace('', np.nan).notna()]
-    unmatched_pax = valid_pax[~valid_pax['편명'].isin(df_g['편명'])]
-    unmatched_list = [str(f).strip() for f in unmatched_pax['편명'].unique() if str(f).strip() != '']
-    
-    if len(unmatched_list) > 0:
-        with st.sidebar:
-            st.warning(f"⚠️ **[API 매칭 실패 안내]**\n아래 시트 항공편은 실시간 공항 API에서 찾지 못해 표에서 제외되었습니다 (오타 또는 비운항 - 신경 안 쓰셔도 됩니다.):\n**{', '.join(unmatched_list)}**")
-
     final = pd.merge(df_g, df_p, on='편명', how='inner', suffixes=('_api', '_pax'))
     
     if '출발지_pax' in final.columns:
@@ -618,7 +609,6 @@ else:
         def c_sum(c): return final[final['편명'].str.startswith(c, na=False)]['p_val'].sum()
         ke_s, oz_s, dl_s = c_sum('KE'), c_sum('OZ'), c_sum('DL')
         
-        # ⭐ [4번 수정] 불필요한 자바스크립트 자동 클릭 타이머를 삭제하고 PDF/사진 저장 및 스크롤 유지 기능만 깔끔하게 유지
         st.components.v1.html(
             """
             <style>
