@@ -7,13 +7,12 @@ from google.oauth2.service_account import Credentials
 import re
 import io
 import requests
-import time  # ⭐ [적용 완료] 재시도 대기 시간을 위한 time 모듈 추가
+import time
 from datetime import datetime, timedelta, timezone
 import concurrent.futures
 import threading
 from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 
-# ⭐ [적용 완료] 처음 접속 시 사이드바 닫혀있게 설정 (initial_sidebar_state="collapsed")
 st.set_page_config(page_title="T2 보안검색 환승부 잡지", layout="wide", initial_sidebar_state="collapsed")
 
 if "last_updated" not in st.session_state:
@@ -84,7 +83,7 @@ def load_file_names():
         st.sidebar.error(f"⚠ 파일 목록 불러오기 실패: {e}")
     return []
 
-@st.cache_data(ttl=21600, show_spinner=False)  # 6시간 동안 구글 서버에 재요청 안 함 (트래픽 0)
+@st.cache_data(ttl=21600, show_spinner=False)  # 6시간 동안 구글 서버에 재요청 안 함
 def load_from_sheet(sheet_name):
     try:
         spreadsheet = get_spreadsheet()
@@ -110,19 +109,15 @@ def clear_sheet(sheet_name):
     except Exception as e:
         st.sidebar.error(f"⚠ 데이터 비우기 실패: {e}")
 
-# ⭐ [완벽 해결] 브라우저(Chrome) 위장 헤더 + 공백 제거 + 메인 화면 에러 알림이 적용된 최종 XML 조회 함수
+# ⭐ 브라우저(Chrome) 위장 헤더 + 공백 제거 + 메인 화면 에러 알림이 적용된 XML 조회 함수
 @st.cache_data(ttl=290, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
-    import xml.etree.ElementTree as ET  # XML 파싱용 안전 임포트
+    import xml.etree.ElementTree as ET
     try:
-        # 1. 시크릿 키 끝에 숨어있을 수 있는 공백/줄바꿈 완벽 제거
         api_key = str(st.secrets["api"]["service_key"]).strip()
         url = "https://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp"
-        
-        # 2. 브라우저에서 100% 성공한 type=xml 주소
         req_url = f"{url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=xml&numOfRows=1800&pageNo=1"
         
-        # ⭐ 3. [핵심] Streamlit 해외 클라우드 IP 차단 방지를 위한 Chrome 브라우저 위장 헤더
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         }
@@ -132,7 +127,6 @@ def fetch_realtime_gate_info(search_date_str):
         
         for attempt in range(max_retries):
             try:
-                # 위장 헤더(headers=headers)를 함께 실어서 보냄
                 response = requests.get(req_url, headers=headers, timeout=(10, 25))
                 if response.status_code == 200:
                     break
@@ -146,7 +140,6 @@ def fetch_realtime_gate_info(search_date_str):
             st.error(f"⚠ [통신 오류] API 서버 응답 실패 (상태 코드: {response.status_code if response else '연결 불가'})")
             return pd.DataFrame()
 
-        # ⭐ 4. 서버가 에러 메시지(XML)를 보냈는지 감지하고 메인 화면에 즉시 표시
         err_text = response.text
         if "NORMAL SERVICE" not in err_text and ("returnReasonCode" in err_text or "errMsg" in err_text):
             if "22" in err_text or "EXCEEDS" in err_text:
@@ -161,7 +154,6 @@ def fetch_realtime_gate_info(search_date_str):
                 st.error(f"🚨 [API 오류] 서버 응답 내용: {err_text[:150]}")
             return pd.DataFrame()
 
-        # 5. 정상 XML 파싱 (<item> 추출)
         try:
             root = ET.fromstring(err_text)
         except ET.ParseError:
@@ -464,7 +456,6 @@ with st.sidebar:
 
     st.header("🔄 실시간 업데이트")
     
-    # 🌟 수동 업데이트 버튼 (사용자가 누르면 공공데이터+구글시트 싹 다 갱신)
     if st.button("🔄 업데이트하기", use_container_width=True):
         fetch_realtime_gate_info.clear()
         load_from_sheet.clear()
@@ -477,9 +468,8 @@ with st.sidebar:
     st.caption(f"마지막 업데이트: {st.session_state['last_updated']}")
     st.caption("⚠️ 잦은 업데이트 시 트래픽 허용량 초과로 기능이 정지 될 수 있습니다.(자정 초기화)")
 
-    # 🌟 [트래픽 보호 기술] 백그라운드용 '공공데이터만' 갱신하는 숨겨진 버튼
     if st.button("hidden_auto_refresh", key="hidden_auto"):
-        fetch_realtime_gate_info.clear() # 💡 구글 시트는 냅두고 게이트(공공데이터) 캐시만 비움!
+        fetch_realtime_gate_info.clear()
         KST = timezone(timedelta(hours=9))
         st.session_state["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
         st.rerun()
@@ -519,7 +509,8 @@ with file_list_placeholder:
         with st.expander("✅ 현재 공유중인 승객 데이터 목록", expanded=True):
             if saved_files:
                 for fname in saved_files:
-                    st.markdown(f"<p class='file-item'>• {fname}</p>", unsafe_allow_html=True)
+                    # ⭐ [3번 수정] 파일명 출력 시 HTML 이스케이프 적용 (XSS 보안 차단)
+                    st.markdown(f"<p class='file-item'>• {html.escape(str(fname))}</p>", unsafe_allow_html=True)
             else:
                 st.markdown("<p class='file-item'>• 데이터 적용 완료</p>", unsafe_allow_html=True)
 
@@ -547,7 +538,14 @@ if not p_all or df_g.empty:
     if df_g.empty:
         st.info(f"🔄 {display_date_str}의 실시간 공항 API에서 게이트 데이터를 불러오는 중이거나 데이터가 없습니다.")
 else:
-    df_p = pd.concat(p_all).drop_duplicates('편명')
+    df_p = pd.concat(p_all)
+    
+    # ⭐ [6번 수정] 구글 시트 헤더 오타('편명' 컬럼 누락) 시 앱 다운 방지
+    if '편명' not in df_p.columns:
+        st.sidebar.error("🚨 [구글 시트 오류] 시트 상단에 '편명' 컬럼이 없거나 이름이 잘못되었습니다. (예: 띄어쓰기 등)")
+        df_p['편명'] = ""
+        
+    df_p = df_p.drop_duplicates('편명')
     final = pd.merge(df_g, df_p, on='편명', how='inner', suffixes=('_api', '_pax'))
     
     if '출발지_pax' in final.columns:
@@ -561,6 +559,11 @@ else:
         final = final[~final['출발지'].astype(str).str.contains('PUS|김해|부산', case=False, na=False)]
     
     if not final.empty:
+        # ⭐ [6번 수정] 구글 시트 헤더 오타('승객수' 컬럼 누락) 시 앱 다운 방지
+        if '승객수' not in final.columns:
+            st.sidebar.error("🚨 [구글 시트 오류] 시트에 '승객수' 컬럼이 없거나 오타(예: '승객 수')가 있습니다. 시트 헤더를 확인해 주세요!")
+            final['승객수'] = 0
+            
         final['p_val'] = pd.to_numeric(final['승객수'], errors='coerce').fillna(0).astype(int)
         
         def format_pax_display(val):
@@ -710,7 +713,6 @@ else:
                 }
             }, 500);
 
-            // 🌟 1. '숨겨진 버튼'을 화면에서 완전히 보이지 않게 처리
             setInterval(function() {
                 var btns = parentDoc.querySelectorAll('button');
                 btns.forEach(function(b) {
@@ -720,7 +722,6 @@ else:
                 });
             }, 50);
 
-            // 🌟 2. 5분마다 몰래 '숨겨진 버튼' 클릭 (구글 트래픽 보호용 업데이트)
             setInterval(function() {
                 var buttons = parentDoc.querySelectorAll('button');
                 buttons.forEach(function(btn) {
