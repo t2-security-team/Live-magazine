@@ -199,7 +199,7 @@ if "toast_msg" in st.session_state:
     st.toast(st.session_state["toast_msg"], icon="✅")
     del st.session_state["toast_msg"]
 
-# ⭐ [CSS 개선] [data-testid="stSidebar"] block-container의 상단 패딩을 줄여서 사이드바 맨 위 휑한 여백을 제거함!
+# ⭐ [CSS 개선] 스트림릿 사이드바의 모든 내부 래퍼(stSidebarUserContent 등) 상단 여백을 강제 제거!
 st.markdown("""
     <style>
     .main .block-container { padding-top: 0px !important; padding-bottom: 0px !important; margin-top: -15px !important; }
@@ -207,8 +207,13 @@ st.markdown("""
     .element-container { margin-bottom: 0px !important; }
     iframe { margin-bottom: 0px !important; min-height: 45px !important; }
     
-    [data-testid="stSidebar"] > div:first-child {
-        padding-top: 1.5rem !important;
+    section[data-testid="stSidebar"] div[data-testid="stSidebarUserContent"] {
+        padding-top: 0rem !important;
+        margin-top: -2.5rem !important;
+    }
+    section[data-testid="stSidebar"] .block-container {
+        padding-top: 0rem !important;
+        margin-top: -2.5rem !important;
     }
     
     .file-box { background-color:#f0f7ff; padding:15px; border-radius:5px; margin-bottom:15px; border: 1px solid #3b82f6; display: block; overflow: visible; }
@@ -428,12 +433,11 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
     return "".join(html_parts)
 
 with st.sidebar:
-    # ⭐ 보이지 않는 자동새로고침(autorefresh) 컴포넌트 최상단 배치
     if st_autorefresh:
         st_autorefresh(interval=300000, key="data_autorefresh")
 
-    # ⭐ 제목-버튼 여백 제거
-    st.markdown("<h3 style='margin: 0px 0px -15px 0px !important; padding: 0px !important; font-size: 19px; font-weight: bold; color: #1E3A8A;'>🔄 실시간 업데이트</h3>", unsafe_allow_html=True)
+    # ⭐ 제목의 마진을 음수로 당겨서 사이드바 윗여백 완전 제거!
+    st.markdown("<h3 style='margin: -10px 0px -15px 0px !important; padding: 0px !important; font-size: 19px; font-weight: bold; color: #1E3A8A;'>🔄 실시간 업데이트</h3>", unsafe_allow_html=True)
     
     if st.button("🔄 업데이트하기", use_container_width=True):
         fetch_realtime_gate_info.clear()
@@ -445,12 +449,10 @@ with st.sidebar:
         st.rerun()
         
     st.caption(f"마지막 업데이트: {st.session_state['last_updated']}")
-    # ⭐ 문구를 '자주 눌러주세요!'로 변경 (트래픽 경고 삭제)
     st.caption("💡 게이트 정보가 변동될 수 있으니 [🔄 업데이트하기]를 자주 눌러주세요!")
 
     st.divider()
 
-    # ⭐ 공유중인 승객 데이터 목록 (업데이트 버튼 바로 밑에 위치)
     file_list_placeholder = st.container()
     st.divider()
 
@@ -521,7 +523,6 @@ with file_list_placeholder:
         with st.expander("✅ 현재 공유중인 승객 데이터 목록", expanded=True):
             if saved_files:
                 for fname in saved_files:
-                    # ⭐ [3번 수정] 파일명 출력 시 HTML 이스케이프 적용 (XSS 보안 차단)
                     st.markdown(f"<p class='file-item'>• {html.escape(str(fname))}</p>", unsafe_allow_html=True)
             else:
                 st.markdown("<p class='file-item'>• 데이터 적용 완료</p>", unsafe_allow_html=True)
@@ -552,12 +553,10 @@ if not p_all or df_g.empty:
 else:
     df_p = pd.concat(p_all)
     
-    # ⭐ [6번 수정] 구글 시트 헤더 오타('편명' 컬럼 누락) 시 앱 다운 방지
     if '편명' not in df_p.columns:
         st.sidebar.error("🚨 [구글 시트 오류] 시트 상단에 '편명' 컬럼이 없거나 이름이 잘못되었습니다. (예: 띄어쓰기 등)")
         df_p['편명'] = ""
         
-    # ⭐ [1번 수정] 시간 또는 날짜 컬럼이 함께 있다면 '편명+시간(날짜)' 기준으로 안전하게 중복 제거
     dup_cols = ['편명']
     if '시간' in df_p.columns:
         dup_cols.append('시간')
@@ -578,7 +577,6 @@ else:
         final = final[~final['출발지'].astype(str).str.contains('PUS|김해|부산', case=False, na=False)]
     
     if not final.empty:
-        # ⭐ [6번 수정] 구글 시트 헤더 오타('승객수' 컬럼 누락) 시 앱 다운 방지
         if '승객수' not in final.columns:
             st.sidebar.error("🚨 [구글 시트 오류] 시트에 '승객수' 컬럼이 없거나 오타(예: '승객 수')가 있습니다. 시트 헤더를 확인해 주세요!")
             final['승객수'] = 0
@@ -617,6 +615,7 @@ else:
         def c_sum(c): return final[final['편명'].str.startswith(c, na=False)]['p_val'].sum()
         ke_s, oz_s, dl_s = c_sum('KE'), c_sum('OZ'), c_sum('DL')
         
+        # ⭐ [개선] 사진 저장 버튼 바로 옆에 "🔄 실시간 업데이트" 버튼 추가! (누르면 즉시 데이터 최신화)
         st.components.v1.html(
             """
             <style>
@@ -630,10 +629,20 @@ else:
             </style>
             <button class="custom-btn" onclick="window.parent.print()">📄 PDF 저장</button>
             <button class="custom-btn" onclick="takePic()" id="pic-btn">📸 전체 사진으로 저장</button>
+            <button class="custom-btn" onclick="doUpdate()">🔄 실시간 업데이트</button>
             
             <script>
             var parentWin = window.parent;
             var parentDoc = parentWin.document;
+
+            function doUpdate() {
+                var btns = parentDoc.querySelectorAll('button');
+                btns.forEach(function(b) {
+                    if (b.innerText.includes("업데이트하기")) {
+                        b.click();
+                    }
+                });
+            }
 
             function takePic() {
                 var btn = document.getElementById('pic-btn');
