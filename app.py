@@ -564,7 +564,7 @@ else:
     
     if len(unmatched_list) > 0:
         with st.sidebar:
-            st.warning(f"⚠️ **[API 매칭 실패 안내]**\n아래 구글 시트 항공편은 실시간 공항 API에서 찾지 못해 표에서 제외되었습니다 (오타 또는 비운항 여부 확인):\n**{', '.join(unmatched_list)}**")
+            st.warning(f"⚠️ **[API 매칭 실패 안내]**\n아래 시트 항공편은 실시간 공항 API에서 찾지 못해 표에서 제외되었습니다 (오타 또는 비운항 여부 확인):\n**{', '.join(unmatched_list)}**")
 
     final = pd.merge(df_g, df_p, on='편명', how='inner', suffixes=('_api', '_pax'))
     
