@@ -13,6 +13,12 @@ import concurrent.futures
 import threading
 from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 
+# ⭐ [4번 수정] 정식 자동 새로고침 라이브러리 임포트 (트래픽 방어 + 안전 갱신)
+try:
+    from streamlit_autorefresh import st_autorefresh
+except ImportError:
+    st_autorefresh = None
+
 st.set_page_config(page_title="T2 보안검색 환승부 잡지", layout="wide", initial_sidebar_state="collapsed")
 
 if "last_updated" not in st.session_state:
@@ -456,6 +462,10 @@ with st.sidebar:
 
     st.header("🔄 실시간 업데이트")
     
+    # ⭐ [4번 수정] 5분(300,000ms)마다 부드럽고 안전하게 화면 자동 새로고침 실행
+    if st_autorefresh:
+        st_autorefresh(interval=300000, key="data_autorefresh")
+    
     if st.button("🔄 업데이트하기", use_container_width=True):
         fetch_realtime_gate_info.clear()
         load_from_sheet.clear()
@@ -467,12 +477,6 @@ with st.sidebar:
         
     st.caption(f"마지막 업데이트: {st.session_state['last_updated']}")
     st.caption("⚠️ 잦은 업데이트 시 트래픽 허용량 초과로 기능이 정지 될 수 있습니다.(자정 초기화)")
-
-    if st.button("hidden_auto_refresh", key="hidden_auto"):
-        fetch_realtime_gate_info.clear()
-        KST = timezone(timedelta(hours=9))
-        st.session_state["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
-        st.rerun()
 
     st.divider()
     
@@ -545,7 +549,23 @@ else:
         st.sidebar.error("🚨 [구글 시트 오류] 시트 상단에 '편명' 컬럼이 없거나 이름이 잘못되었습니다. (예: 띄어쓰기 등)")
         df_p['편명'] = ""
         
-    df_p = df_p.drop_duplicates('편명')
+    # ⭐ [1번 수정] 시간 또는 날짜 컬럼이 함께 있다면 '편명+시간(날짜)' 기준으로 안전하게 중복 제거
+    dup_cols = ['편명']
+    if '시간' in df_p.columns:
+        dup_cols.append('시간')
+    elif '날짜' in df_p.columns:
+        dup_cols.append('날짜')
+    df_p = df_p.drop_duplicates(dup_cols)
+    
+  # ⭐ [2번 수정] 구글 시트에는 있지만 실시간 공항 API에서 찾지 못한 항공편 감지 (빈 칸 및 공백 제외)
+    valid_pax = df_p[df_p['편명'].astype(str).str.strip().replace('', np.nan).notna()]
+    unmatched_pax = valid_pax[~valid_pax['편명'].isin(df_g['편명'])]
+    unmatched_list = [str(f).strip() for f in unmatched_pax['편명'].unique() if str(f).strip() != '']
+    
+    if len(unmatched_list) > 0:
+        with st.sidebar:
+            st.warning(f"⚠️ **[API 매칭 실패 안내]**\n아래 구글 시트 항공편은 실시간 공항 API에서 찾지 못해 표에서 제외되었습니다 (오타 또는 비운항 여부 확인):\n**{', '.join(unmatched_list)}**")
+
     final = pd.merge(df_g, df_p, on='편명', how='inner', suffixes=('_api', '_pax'))
     
     if '출발지_pax' in final.columns:
@@ -598,6 +618,7 @@ else:
         def c_sum(c): return final[final['편명'].str.startswith(c, na=False)]['p_val'].sum()
         ke_s, oz_s, dl_s = c_sum('KE'), c_sum('OZ'), c_sum('DL')
         
+        # ⭐ [4번 수정] 불필요한 자바스크립트 자동 클릭 타이머를 삭제하고 PDF/사진 저장 및 스크롤 유지 기능만 깔끔하게 유지
         st.components.v1.html(
             """
             <style>
@@ -712,24 +733,6 @@ else:
                     parentWin.sessionStorage.setItem('stScrollPos', scrollTop);
                 }
             }, 500);
-
-            setInterval(function() {
-                var btns = parentDoc.querySelectorAll('button');
-                btns.forEach(function(b) {
-                    if(b.innerText.includes("hidden_auto_refresh")) {
-                        b.style.display = 'none';
-                    }
-                });
-            }, 50);
-
-            setInterval(function() {
-                var buttons = parentDoc.querySelectorAll('button');
-                buttons.forEach(function(btn) {
-                    if(btn.innerText.includes("hidden_auto_refresh")) {
-                        btn.click();
-                    }
-                });
-            }, 300000);
 
             </script>
             """, height=45
