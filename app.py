@@ -629,7 +629,7 @@ else:
             </style>
             <button class="custom-btn" onclick="window.parent.print()">📄 PDF 저장</button>
             <button class="custom-btn" onclick="takePic()" id="pic-btn">📸 전체 사진으로 저장</button>
-            <button class="custom-btn" onclick="doUpdate()">🔄 실시간 업데이트</button>
+            <button class="custom-btn" onclick="doUpdate()">🔄 실시간 업데이트(자주눌러주세요)</button>
             
             <script>
             var parentWin = window.parent;
