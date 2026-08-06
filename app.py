@@ -13,7 +13,6 @@ import concurrent.futures
 import threading
 from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 
-# ⭐ [4번 수정] 정식 자동 새로고침 라이브러리 임포트 (트래픽 방어 + 안전 갱신)
 try:
     from streamlit_autorefresh import st_autorefresh
 except ImportError:
@@ -26,35 +25,37 @@ if "last_updated" not in st.session_state:
 
 SHEET_NAME = "보안검색_데이터_공유"
 
-# ⭐ [100% 동작 보장] 5분(300초) 자동 새로고침 2중 방어 함수
-def setup_5min_autorefresh():
-    if st_autorefresh:
-        st_autorefresh(interval=300000, key="data_autorefresh_5min")
-    else:
-        # 라이브러리가 없어도 브라우저 JS 타이머로 5분마다 무조건 갱신
-        st.components.v1.html(
-            """
-            <script>
-            setTimeout(function() {
-                var btns = window.parent.document.querySelectorAll('button');
-                var updated = false;
-                btns.forEach(function(b) {
-                    if (b.innerText.includes("업데이트하기")) {
-                        b.click();
-                        updated = true;
-                    }
-                });
-                if (!updated) {
-                    window.parent.location.reload();
-                }
-            }, 300000);
-            </script>
-            """,
-            height=0, width=0
-        )
+# ⭐ [최상단 배치] 어떤 환경에서도 절대 멈추지 않는 강력한 5분(300,000ms) 자동 새로고침 엔진
+st.components.v1.html(
+    """
+    <script>
+    var parentWin = window.parent;
+    var parentDoc = parentWin.document;
 
-# 페이지 시작과 동시에 5분 자동 새로고침 타이머 실행
-setup_5min_autorefresh()
+    function force5MinRefresh() {
+        console.log("⏰ [5분 자동갱신] 최신 게이트 데이터를 불러옵니다.");
+        var btns = parentDoc.querySelectorAll('button');
+        var clicked = false;
+        
+        btns.forEach(function(b) {
+            if (b.innerText.includes("업데이트하기") || b.innerText.includes("실시간 업데이트")) {
+                b.click();
+                clicked = true;
+            }
+        });
+        
+        // 버튼을 못 찾거나 클릭에 실패하면 무조건 페이지 전체 강제 새로고침!
+        if (!clicked) {
+            parentWin.location.reload();
+        }
+    }
+
+    // 300,000ms (5분) 마다 무조건 실행
+    setInterval(force5MinRefresh, 300000);
+    </script>
+    """,
+    height=0, width=0
+)
 
 @st.cache_resource(show_spinner=False)
 def get_gspread_client():
@@ -145,7 +146,6 @@ def clear_sheet(sheet_name):
     except Exception as e:
         st.sidebar.error(f"⚠ 데이터 비우기 실패: {e}")
 
-# ⭐ 브라우저(Chrome) 위장 헤더 + 공백 제거 + 메인 화면 에러 알림이 적용된 XML 조회 함수
 @st.cache_data(ttl=290, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
     import xml.etree.ElementTree as ET
@@ -229,7 +229,6 @@ if "toast_msg" in st.session_state:
     st.toast(st.session_state["toast_msg"], icon="✅")
     del st.session_state["toast_msg"]
 
-# ⭐ [CSS 개선] 스트림릿 사이드바의 모든 내부 래퍼(stSidebarUserContent 등) 상단 여백을 강제 제거!
 st.markdown("""
     <style>
     .main .block-container { padding-top: 0px !important; padding-bottom: 0px !important; margin-top: -15px !important; }
@@ -463,7 +462,6 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
     return "".join(html_parts)
 
 with st.sidebar:
-    # ⭐ 제목의 마진을 음수로 당겨서 사이드바 윗여백 완전 제거!
     st.markdown("<h3 style='margin: -10px 0px -15px 0px !important; padding: 0px !important; font-size: 19px; font-weight: bold; color: #1E3A8A;'>🔄 실시간 업데이트</h3>", unsafe_allow_html=True)
     
     if st.button("🔄 업데이트하기", use_container_width=True):
@@ -572,7 +570,7 @@ if not p_all or df_g.empty:
         ### 🌐 데이터 공유 방식 안내
         * **자동 공유:** 서버에 연결된 데이터를 자동으로 불러옵니다.
         * **실시간 게이트 연동:** 게이트 정보는 실시간으로 도착편을 조회합니다.
-        * **5분 자동 갱신:** 별도 조작 없이도 매 5분마다 최신 데이터를 자동으로 불러옵니다.
+        * **5분 자동 갱신:** 별도의 조작 없이도 5분마다 최신 데이터를 자동으로 새로고침합니다.
         * **업데이트:** 게이트 정보가 변경되었을 수 있으니 언제든 사이드바의 **[🔄 업데이트하기]** 버튼을 눌러주세요.
         * **스크롤 유지:** 자동 갱신 시에도 보시던 화면 위치가 그대로 유지됩니다.
         """)
@@ -643,7 +641,6 @@ else:
         def c_sum(c): return final[final['편명'].str.startswith(c, na=False)]['p_val'].sum()
         ke_s, oz_s, dl_s = c_sum('KE'), c_sum('OZ'), c_sum('DL')
         
-        # ⭐ [개선] 사진 저장 버튼 바로 옆에 "🔄 실시간 업데이트" 버튼 추가 + 5분마다 자동 클릭!
         st.components.v1.html(
             """
             <style>
@@ -657,30 +654,10 @@ else:
             </style>
             <button class="custom-btn" onclick="window.parent.print()">📄 PDF 저장</button>
             <button class="custom-btn" onclick="takePic()" id="pic-btn">📸 전체 사진으로 저장</button>
-            <button class="custom-btn" onclick="doUpdate()">🔄 실시간 업데이트(5분 자동갱신)</button>
             
             <script>
             var parentWin = window.parent;
             var parentDoc = parentWin.document;
-
-            function doUpdate() {
-                var btns = parentDoc.querySelectorAll('button');
-                var clicked = false;
-                btns.forEach(function(b) {
-                    if (b.innerText.includes("업데이트하기") || b.innerText.includes("실시간 업데이트")) {
-                        b.click();
-                        clicked = true;
-                    }
-                });
-                if (!clicked) {
-                    parentWin.location.reload();
-                }
-            }
-
-            // ⭐ 5분(300,000ms)마다 백그라운드에서 자동으로 업데이트 버튼을 실행합니다!
-            setTimeout(function() {
-                doUpdate();
-            }, 300000);
 
             function takePic() {
                 var btn = document.getElementById('pic-btn');
