@@ -641,6 +641,7 @@ else:
         def c_sum(c): return final[final['편명'].str.startswith(c, na=False)]['p_val'].sum()
         ke_s, oz_s, dl_s = c_sum('KE'), c_sum('OZ'), c_sum('DL')
         
+        # ⭐ [수정된 부분] 전체 사진으로 저장 버튼 오른쪽에 🔄 새로고침 버튼 추가!
         st.components.v1.html(
             """
             <style>
@@ -654,10 +655,25 @@ else:
             </style>
             <button class="custom-btn" onclick="window.parent.print()">📄 PDF 저장</button>
             <button class="custom-btn" onclick="takePic()" id="pic-btn">📸 전체 사진으로 저장</button>
+            <button class="custom-btn" onclick="doManualRefresh()">🔄 새로고침</button>
             
             <script>
             var parentWin = window.parent;
             var parentDoc = parentWin.document;
+
+            function doManualRefresh() {
+                var btns = parentDoc.querySelectorAll('button');
+                var clicked = false;
+                btns.forEach(function(b) {
+                    if (b.innerText.includes("업데이트하기") || b.innerText.includes("실시간 업데이트")) {
+                        b.click();
+                        clicked = true;
+                    }
+                });
+                if (!clicked) {
+                    parentWin.location.reload();
+                }
+            }
 
             function takePic() {
                 var btn = document.getElementById('pic-btn');
