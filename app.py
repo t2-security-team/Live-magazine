@@ -113,12 +113,26 @@ def load_file_names():
         sheet = spreadsheet.worksheet("file_list")
         data = sheet.get_all_values()
         if len(data) > 1:
-            return [row[0] for row in data[1:] if row and row[0].strip() != ""]
+            files = [row[0] for row in data[1:] if row and row[0].strip() != ""]
+            load_file_names._last_good_files = files
+            return files
     except gspread.exceptions.WorksheetNotFound:
         pass
     except Exception as e:
+        # ⭐ [구글 서버 에러 시 직전 파일 목록 보존]
+        if hasattr(load_file_names, "_last_good_files") and load_file_names._last_good_files:
+            return load_file_names._last_good_files
         st.sidebar.error(f"⚠ 파일 목록 불러오기 실패: {e}")
     return []
+
+# ⭐ [구글 시트 비상 방패] 구글 서버 503 에러나 네트워크 지연 시 직전 정상 승객 데이터를 유지하는 함수
+def get_pax_fallback_df(err_msg=""):
+    if hasattr(load_from_sheet, "_last_good_df") and not load_from_sheet._last_good_df.empty:
+        st.sidebar.warning("⚠️ [구글 서버 지연 안심 알림] 구글 시트 응답이 지연되어 직전 정상 승객 데이터를 유지합니다.")
+        return load_from_sheet._last_good_df
+    if err_msg:
+        st.sidebar.error(f"⚠ 데이터 불러오기 실패: {err_msg}")
+    return pd.DataFrame()
 
 @st.cache_data(ttl=21600, show_spinner=False)  # 6시간 동안 구글 서버에 재요청 안 함
 def load_from_sheet(sheet_name):
@@ -127,12 +141,17 @@ def load_from_sheet(sheet_name):
         sheet = spreadsheet.worksheet(sheet_name)
         data = sheet.get_all_values()
         if len(data) > 1:
-            return pd.DataFrame(data[1:], columns=data[0])
+            df = pd.DataFrame(data[1:], columns=data[0])
+            # ⭐ [정상 조회 성공 시 비상 보관함에 복사본 저장]
+            if sheet_name == "pax_data" and not df.empty:
+                load_from_sheet._last_good_df = df.copy()
+            return df
     except gspread.exceptions.WorksheetNotFound:
         pass
     except Exception as e:
-        st.sidebar.error(f"⚠ 데이터 불러오기 실패: {e}")
-    return pd.DataFrame()
+        # ⭐ [503 에러 등 예외 발생 시 비상 보관함 데이터 반환]
+        return get_pax_fallback_df(str(e))
+    return get_pax_fallback_df()
 
 def clear_sheet(sheet_name):
     try:
@@ -146,14 +165,13 @@ def clear_sheet(sheet_name):
     except Exception as e:
         st.sidebar.error(f"⚠ 데이터 비우기 실패: {e}")
 
-# ⭐ [피크시간 방패 장착] 정부 API 서버 지연/타임아웃 시 직전 정상 데이터를 복구하는 비상 보관함 함수
+# ⭐ [정부 API 비상 방패] 정부 서버 지연/타임아웃 시 직전 정상 데이터를 복구하는 비상 보관함 함수
 def get_fallback_df():
     if hasattr(fetch_realtime_gate_info, "_last_good_df") and not fetch_realtime_gate_info._last_good_df.empty:
         st.warning("⚠️ [정부 서버 지연 안심 알림] 피크시간 공공데이터포털 응답이 지연되어 직전 정상 조회 데이터를 유지합니다.")
         return fetch_realtime_gate_info._last_good_df
     return pd.DataFrame()
 
-# ⭐ 비상 보관함 방패가 적용된 API 조회 함수 (타임아웃/오류 시 빈 표 대신 직전 정상 데이터 반환!)
 @st.cache_data(ttl=290, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
     import xml.etree.ElementTree as ET
@@ -221,7 +239,6 @@ def fetch_realtime_gate_info(search_date_str):
         
         if not df.empty:
             df = df[df['편명'].str.startswith(('KE', 'OZ', 'DL'), na=False)]
-            # ⭐ [핵심] 정상적으로 조회가 성공했을 때만 비상 보관함에 복사본 저장!
             fetch_realtime_gate_info._last_good_df = df.copy()
             
         return df
@@ -644,7 +661,6 @@ else:
         def c_sum(c): return final[final['편명'].str.startswith(c, na=False)]['p_val'].sum()
         ke_s, oz_s, dl_s = c_sum('KE'), c_sum('OZ'), c_sum('DL')
         
-        # ⭐ [수정된 부분] 전체 사진으로 저장 버튼 오른쪽에 🔄 새로고침 버튼 추가!
         st.components.v1.html(
             """
             <style>
