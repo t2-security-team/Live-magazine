@@ -13,7 +13,6 @@ import concurrent.futures
 import threading
 from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 
-# ⭐ [4번 수정] 정식 자동 새로고침 라이브러리 임포트 (트래픽 방어 + 안전 갱신)
 try:
     from streamlit_autorefresh import st_autorefresh
 except ImportError:
@@ -21,15 +20,42 @@ except ImportError:
 
 st.set_page_config(page_title="T2 보안검색 환승부 잡지", layout="wide", initial_sidebar_state="collapsed")
 
-# ⭐ [해결 핵심] 사이드바 안이 아니라 메인 화면 맨 위에 투명 타이머를 배치!
-# -> 사이드바가 닫혀 있어도 JS 꼼수 없이 파이썬 정식 기능으로 5분(300,000ms)마다 완벽하게 작동합니다.
-if st_autorefresh:
-    st_autorefresh(interval=300000, key="data_autorefresh")
-
 if "last_updated" not in st.session_state:
     st.session_state["last_updated"] = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
 
 SHEET_NAME = "보안검색_데이터_공유"
+
+# ⭐ [최상단 배치] 어떤 환경에서도 절대 멈추지 않는 강력한 5분(300,000ms) 자동 새로고침 엔진
+st.components.v1.html(
+    """
+    <script>
+    var parentWin = window.parent;
+    var parentDoc = parentWin.document;
+
+    function force5MinRefresh() {
+        console.log("⏰ [5분 자동갱신] 최신 게이트 데이터를 불러옵니다.");
+        var btns = parentDoc.querySelectorAll('button');
+        var clicked = false;
+        
+        btns.forEach(function(b) {
+            if (b.innerText.includes("업데이트하기") || b.innerText.includes("실시간 업데이트")) {
+                b.click();
+                clicked = true;
+            }
+        });
+        
+        // 버튼을 못 찾거나 클릭에 실패하면 무조건 페이지 전체 강제 새로고침!
+        if (!clicked) {
+            parentWin.location.reload();
+        }
+    }
+
+    // 300,000ms (5분) 마다 무조건 실행
+    setInterval(force5MinRefresh, 300000);
+    </script>
+    """,
+    height=0, width=0
+)
 
 @st.cache_resource(show_spinner=False)
 def get_gspread_client():
@@ -127,7 +153,7 @@ def get_fallback_df():
         return fetch_realtime_gate_info._last_good_df
     return pd.DataFrame()
 
-# ⭐ 브라우저(Chrome) 위장 헤더 + 공백 제거 + 메인 화면 에러 알림 + 피크타임 비상 백업이 적용된 XML 조회 함수
+# ⭐ 비상 보관함 방패가 적용된 API 조회 함수 (타임아웃/오류 시 빈 표 대신 직전 정상 데이터 반환!)
 @st.cache_data(ttl=290, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
     import xml.etree.ElementTree as ET
@@ -195,7 +221,7 @@ def fetch_realtime_gate_info(search_date_str):
         
         if not df.empty:
             df = df[df['편명'].str.startswith(('KE', 'OZ', 'DL'), na=False)]
-            # ⭐ [정상 조회 성공 시 비상 보관함에 복사본 저장]
+            # ⭐ [핵심] 정상적으로 조회가 성공했을 때만 비상 보관함에 복사본 저장!
             fetch_realtime_gate_info._last_good_df = df.copy()
             
         return df
@@ -451,7 +477,7 @@ with st.sidebar:
         st.rerun()
         
     st.caption(f"마지막 업데이트: {st.session_state['last_updated']}")
-    st.caption("💡 게이트 정보가 변동될 수 있으니 [🔄 업데이트하기]를 자주 눌러주세요!")
+    st.caption("💡 5분(300초)마다 자동으로 최신 게이트 정보를 갱신합니다!")
 
     st.divider()
 
@@ -547,6 +573,7 @@ if not p_all or df_g.empty:
         ### 🌐 데이터 공유 방식 안내
         * **자동 공유:** 서버에 연결된 데이터를 자동으로 불러옵니다.
         * **실시간 게이트 연동:** 게이트 정보는 실시간으로 도착편을 조회합니다.
+        * **5분 자동 갱신:** 별도의 조작 없이도 5분마다 최신 데이터를 자동으로 새로고침합니다.
         * **업데이트:** 게이트 정보가 변경되었을 수 있으니 언제든 사이드바의 **[🔄 업데이트하기]** 버튼을 눌러주세요.
         * **스크롤 유지:** 자동 갱신 시에도 보시던 화면 위치가 그대로 유지됩니다.
         """)
@@ -617,6 +644,7 @@ else:
         def c_sum(c): return final[final['편명'].str.startswith(c, na=False)]['p_val'].sum()
         ke_s, oz_s, dl_s = c_sum('KE'), c_sum('OZ'), c_sum('DL')
         
+        # ⭐ [수정된 부분] 전체 사진으로 저장 버튼 오른쪽에 🔄 새로고침 버튼 추가!
         st.components.v1.html(
             """
             <style>
@@ -630,19 +658,24 @@ else:
             </style>
             <button class="custom-btn" onclick="window.parent.print()">📄 PDF 저장</button>
             <button class="custom-btn" onclick="takePic()" id="pic-btn">📸 전체 사진으로 저장</button>
-            <button class="custom-btn" onclick="doUpdate()">🔄 실시간 업데이트</button>
+            <button class="custom-btn" onclick="doManualRefresh()">🔄 새로고침</button>
             
             <script>
             var parentWin = window.parent;
             var parentDoc = parentWin.document;
 
-            function doUpdate() {
+            function doManualRefresh() {
                 var btns = parentDoc.querySelectorAll('button');
+                var clicked = false;
                 btns.forEach(function(b) {
-                    if (b.innerText.includes("업데이트하기")) {
+                    if (b.innerText.includes("업데이트하기") || b.innerText.includes("실시간 업데이트")) {
                         b.click();
+                        clicked = true;
                     }
                 });
+                if (!clicked) {
+                    parentWin.location.reload();
+                }
             }
 
             function takePic() {
