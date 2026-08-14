@@ -20,12 +20,33 @@ except ImportError:
 
 st.set_page_config(page_title="T2 보안검색 환승부 잡지", layout="wide", initial_sidebar_state="collapsed")
 
+# 현재 한국 시간
+now_kst_time = datetime.now(timezone(timedelta(hours=9)))
+today_date_str = now_kst_time.strftime("%Y-%m-%d")
+
 if "last_updated" not in st.session_state:
-    st.session_state["last_updated"] = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S")
+    st.session_state["last_updated"] = now_kst_time.strftime("%Y-%m-%d %H:%M:%S")
+
+# ⭐ [1번 해결책] 새벽 1시 자동 캐시 초기화 엔진 (메모리 찌꺼기 완벽 제거)
+if "last_auto_clear" not in st.session_state:
+    st.session_state["last_auto_clear"] = None
+
+# 현재 시간이 새벽 1시(01:00~01:59)이고, 오늘 아직 청소를 안 했다면 캐시만 조용히 싹 비움
+if now_kst_time.hour == 1 and st.session_state["last_auto_clear"] != today_date_str:
+    try:
+        # 데이터 원본(구글시트)은 건드리지 않고, 임시 보관 중인 '캐시(메모리)'만 삭제합니다.
+        get_gspread_client.clear()
+        get_spreadsheet.clear()
+        load_file_names.clear()
+        load_from_sheet.clear()
+        fetch_realtime_gate_info.clear()
+    except Exception:
+        pass
+    st.session_state["last_auto_clear"] = today_date_str
+
 
 SHEET_NAME = "보안검색_데이터_공유"
 
-# ⭐ [최상단 배치] 어떤 환경에서도 절대 멈추지 않는 강력한 5분(300,000ms) 자동 새로고침 엔진
 st.components.v1.html(
     """
     <script>
@@ -106,52 +127,35 @@ def append_file_names(new_names):
     except Exception as e:
         st.sidebar.error(f"⚠ 파일 목록 저장 실패: {e}")
 
-@st.cache_data(ttl=1800, show_spinner=False)
+# ⭐ [2번 해결책: 메모리 다이어트] max_entries=1 추가
+@st.cache_data(ttl=1800, max_entries=1, show_spinner=False)
 def load_file_names():
     try:
         spreadsheet = get_spreadsheet()
         sheet = spreadsheet.worksheet("file_list")
         data = sheet.get_all_values()
         if len(data) > 1:
-            files = [row[0] for row in data[1:] if row and row[0].strip() != ""]
-            load_file_names._last_good_files = files
-            return files
+            return [row[0] for row in data[1:] if row and row[0].strip() != ""]
     except gspread.exceptions.WorksheetNotFound:
         pass
     except Exception as e:
-        # ⭐ [구글 서버 에러 시 직전 파일 목록 보존]
-        if hasattr(load_file_names, "_last_good_files") and load_file_names._last_good_files:
-            return load_file_names._last_good_files
         st.sidebar.error(f"⚠ 파일 목록 불러오기 실패: {e}")
     return []
 
-# ⭐ [구글 시트 비상 방패] 구글 서버 503 에러나 네트워크 지연 시 직전 정상 승객 데이터를 유지하는 함수
-def get_pax_fallback_df(err_msg=""):
-    if hasattr(load_from_sheet, "_last_good_df") and not load_from_sheet._last_good_df.empty:
-        st.sidebar.warning("⚠️ [구글 서버 지연 안심 알림] 구글 시트 응답이 지연되어 직전 정상 승객 데이터를 유지합니다.")
-        return load_from_sheet._last_good_df
-    if err_msg:
-        st.sidebar.error(f"⚠ 데이터 불러오기 실패: {err_msg}")
-    return pd.DataFrame()
-
-@st.cache_data(ttl=21600, show_spinner=False)  # 6시간 동안 구글 서버에 재요청 안 함
+# ⭐ [2번 해결책: 메모리 다이어트] max_entries=1 추가
+@st.cache_data(ttl=21600, max_entries=1, show_spinner=False)  # 6시간 동안 구글 서버에 재요청 안 함
 def load_from_sheet(sheet_name):
     try:
         spreadsheet = get_spreadsheet()
         sheet = spreadsheet.worksheet(sheet_name)
         data = sheet.get_all_values()
         if len(data) > 1:
-            df = pd.DataFrame(data[1:], columns=data[0])
-            # ⭐ [정상 조회 성공 시 비상 보관함에 복사본 저장]
-            if sheet_name == "pax_data" and not df.empty:
-                load_from_sheet._last_good_df = df.copy()
-            return df
+            return pd.DataFrame(data[1:], columns=data[0])
     except gspread.exceptions.WorksheetNotFound:
         pass
     except Exception as e:
-        # ⭐ [503 에러 등 예외 발생 시 비상 보관함 데이터 반환]
-        return get_pax_fallback_df(str(e))
-    return get_pax_fallback_df()
+        st.sidebar.error(f"⚠ 데이터 불러오기 실패: {e}")
+    return pd.DataFrame()
 
 def clear_sheet(sheet_name):
     try:
@@ -165,14 +169,8 @@ def clear_sheet(sheet_name):
     except Exception as e:
         st.sidebar.error(f"⚠ 데이터 비우기 실패: {e}")
 
-# ⭐ [정부 API 비상 방패] 정부 서버 지연/타임아웃 시 직전 정상 데이터를 복구하는 비상 보관함 함수
-def get_fallback_df():
-    if hasattr(fetch_realtime_gate_info, "_last_good_df") and not fetch_realtime_gate_info._last_good_df.empty:
-        st.warning("⚠️ [정부 서버 지연 안심 알림] 피크시간 공공데이터포털 응답이 지연되어 직전 정상 조회 데이터를 유지합니다.")
-        return fetch_realtime_gate_info._last_good_df
-    return pd.DataFrame()
-
-@st.cache_data(ttl=290, show_spinner=False)
+# ⭐ [2번 해결책: 메모리 다이어트] max_entries=1 추가
+@st.cache_data(ttl=290, max_entries=1, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
     import xml.etree.ElementTree as ET
     try:
@@ -194,11 +192,13 @@ def fetch_realtime_gate_info(search_date_str):
                     break
             except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
                 if attempt == max_retries - 1:
-                    return get_fallback_df()
+                    st.error("⚠ [네트워크 오류] 공공데이터포털 서버 연결이 타임아웃되었습니다.")
+                    return pd.DataFrame()
                 time.sleep(2)
                 
         if not response or response.status_code != 200:
-            return get_fallback_df()
+            st.error(f"⚠ [통신 오류] API 서버 응답 실패 (상태 코드: {response.status_code if response else '연결 불가'})")
+            return pd.DataFrame()
 
         err_text = response.text
         if "NORMAL SERVICE" not in err_text and ("returnReasonCode" in err_text or "errMsg" in err_text):
@@ -207,17 +207,18 @@ def fetch_realtime_gate_info(search_date_str):
             elif "30" in err_text or "NOT_REGISTERED" in err_text:
                 st.error("🚨 [에러 30] 등록되지 않은 인증키이거나 활용신청 승인 오류입니다.")
             elif "04" in err_text or "HTTP_ERROR" in err_text:
-                return get_fallback_df()
+                st.error("🚨 [에러 04] 인천공항 연계 DB 서버 오류입니다. (잠시 후 다시 시도해 주세요)")
             elif "12" in err_text or "NO_OPENAPI_SERVICE" in err_text:
                 st.error("🚨 [에러 12] API 주소(URL) 경로 오류입니다.")
             else:
-                return get_fallback_df()
+                st.error(f"🚨 [API 오류] 서버 응답 내용: {err_text[:150]}")
             return pd.DataFrame()
 
         try:
             root = ET.fromstring(err_text)
         except ET.ParseError:
-            return get_fallback_df()
+            st.error("⚠ [파싱 오류] 서버 응답을 XML로 변환할 수 없습니다.")
+            return pd.DataFrame()
             
         items = []
         for item in root.findall(".//item"):
@@ -239,11 +240,14 @@ def fetch_realtime_gate_info(search_date_str):
         
         if not df.empty:
             df = df[df['편명'].str.startswith(('KE', 'OZ', 'DL'), na=False)]
-            fetch_realtime_gate_info._last_good_df = df.copy()
             
         return df
     except Exception as e:
-        return get_fallback_df()
+        err_msg = str(e)
+        if "api_key" in locals():
+            err_msg = err_msg.replace(api_key, "****(SECRET)****")
+        st.error(f"⚠ [예외 발생] API 데이터 처리 중 오류: {err_msg}")
+        return pd.DataFrame()
 
 if "toast_msg" in st.session_state:
     st.toast(st.session_state["toast_msg"], icon="✅")
