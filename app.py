@@ -106,8 +106,7 @@ def append_file_names(new_names):
     except Exception as e:
         st.sidebar.error(f"⚠ 파일 목록 저장 실패: {e}")
 
-# ⭐ [메모리 초과 방지] max_entries=1 추가
-@st.cache_data(ttl=1800, max_entries=1, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def load_file_names():
     try:
         spreadsheet = get_spreadsheet()
@@ -135,8 +134,7 @@ def get_pax_fallback_df(err_msg=""):
         st.sidebar.error(f"⚠ 데이터 불러오기 실패: {err_msg}")
     return pd.DataFrame()
 
-# ⭐ [메모리 초과 방지] max_entries=1 추가
-@st.cache_data(ttl=21600, max_entries=1, show_spinner=False)  # 6시간 동안 구글 서버에 재요청 안 함
+@st.cache_data(ttl=21600, show_spinner=False)  # 6시간 동안 구글 서버에 재요청 안 함
 def load_from_sheet(sheet_name):
     try:
         spreadsheet = get_spreadsheet()
@@ -174,8 +172,7 @@ def get_fallback_df():
         return fetch_realtime_gate_info._last_good_df
     return pd.DataFrame()
 
-# ⭐ [메모리 초과 방지] max_entries=1 추가
-@st.cache_data(ttl=290, max_entries=1, show_spinner=False)
+@st.cache_data(ttl=290, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
     import xml.etree.ElementTree as ET
     try:
