@@ -27,14 +27,71 @@ today_date_str = now_kst_time.strftime("%Y-%m-%d")
 if "last_updated" not in st.session_state:
     st.session_state["last_updated"] = now_kst_time.strftime("%Y-%m-%d %H:%M:%S")
 
-# ⭐ [1번 해결책] 새벽 1시 자동 캐시 초기화 엔진 (메모리 찌꺼기 완벽 제거)
+# =====================================================================
+# ⭐ [자정 자동 스위칭 엔진] (내일 데이터를 오늘로 자동 이관)
+# =====================================================================
+def perform_midnight_migration(today_str):
+    try:
+        spreadsheet = get_spreadsheet()
+        
+        # 1. 마이그레이션 상태를 기록할 시트 확인 (없으면 생성)
+        try:
+            status_sheet = spreadsheet.worksheet("system_status")
+            last_mig = status_sheet.acell('B1').value
+        except gspread.exceptions.WorksheetNotFound:
+            status_sheet = spreadsheet.add_worksheet(title="system_status", rows="2", cols="2")
+            status_sheet.update(range_name="A1", values=[["last_migration", "1999-01-01"]])
+            last_mig = "1999-01-01"
+            
+        # 2. 오늘 날짜로 아직 마이그레이션이 안 되었다면 실행!
+        if last_mig != today_str:
+            try: tom_pax_data = spreadsheet.worksheet("pax_tomorrow").get_all_values()
+            except: tom_pax_data = []
+            
+            try: tom_files_data = spreadsheet.worksheet("file_list_tomorrow").get_all_values()
+            except: tom_files_data = []
+            
+            # 3. 오늘 방 덮어쓰기 (없으면 생성)
+            try: tod_pax_sheet = spreadsheet.worksheet("pax_today")
+            except: tod_pax_sheet = spreadsheet.add_worksheet("pax_today", 1000, 20)
+            tod_pax_sheet.clear()
+            if len(tom_pax_data) > 0: tod_pax_sheet.update(range_name="A1", values=tom_pax_data)
+            
+            try: tod_files_sheet = spreadsheet.worksheet("file_list_today")
+            except: tod_files_sheet = spreadsheet.add_worksheet("file_list_today", 100, 1)
+            tod_files_sheet.clear()
+            if len(tom_files_data) > 0: tod_files_sheet.update(range_name="A1", values=tom_files_data)
+            
+            # 4. 내일 방 비우기
+            try: spreadsheet.worksheet("pax_tomorrow").clear()
+            except: pass
+            try: spreadsheet.worksheet("file_list_tomorrow").clear()
+            except: pass
+            
+            # 5. 상태 업데이트
+            status_sheet.update(range_name="B1", values=[[today_str]])
+            
+            # 6. 구형 캐시 비우기
+            get_gspread_client.clear()
+            get_spreadsheet.clear()
+            load_from_sheet.clear()
+            load_file_names.clear()
+            
+    except Exception as e:
+        pass # 백그라운드 작업이므로 실패해도 사용자 화면에는 에러를 띄우지 않음
+
+# 브라우저 세션당 하루에 한 번만 체크하도록 제어 (API 호출 과부하 방지)
+if st.session_state.get("last_migration_check") != today_date_str:
+    perform_midnight_migration(today_date_str)
+    st.session_state["last_migration_check"] = today_date_str
+# =====================================================================
+
+# 새벽 1시 자동 캐시 초기화 엔진 (메모리 찌꺼기 완벽 제거)
 if "last_auto_clear" not in st.session_state:
     st.session_state["last_auto_clear"] = None
 
-# 현재 시간이 새벽 1시(01:00~01:59)이고, 오늘 아직 청소를 안 했다면 캐시만 조용히 싹 비움
 if now_kst_time.hour == 1 and st.session_state["last_auto_clear"] != today_date_str:
     try:
-        # 데이터 원본(구글시트)은 건드리지 않고, 임시 보관 중인 '캐시(메모리)'만 삭제합니다.
         get_gspread_client.clear()
         get_spreadsheet.clear()
         load_file_names.clear()
@@ -65,13 +122,11 @@ st.components.v1.html(
             }
         });
         
-        // 버튼을 못 찾거나 클릭에 실패하면 무조건 페이지 전체 강제 새로고침!
         if (!clicked) {
             parentWin.location.reload();
         }
     }
 
-    // 300,000ms (5분) 마다 무조건 실행
     setInterval(force5MinRefresh, 300000);
     </script>
     """,
@@ -93,46 +148,12 @@ def get_spreadsheet():
     client = get_gspread_client()
     return client.open(SHEET_NAME)
 
-def save_to_sheet(df, sheet_name):
-    try:
-        spreadsheet = get_spreadsheet()
-        try:
-            sheet = spreadsheet.worksheet(sheet_name)
-        except gspread.exceptions.WorksheetNotFound:
-            sheet = spreadsheet.add_worksheet(title=sheet_name, rows="1000", cols="20")
-        sheet.clear()
-        data_to_save = [df.columns.values.tolist()] + df.fillna("").astype(str).values.tolist()
-        sheet.update(range_name="A1", values=data_to_save)
-        load_from_sheet.clear()
-        return True
-    except Exception as e:
-        st.sidebar.error(f"⚠ 데이터 저장 실패: {e}")
-        return False
-
-def append_file_names(new_names):
-    if not new_names: return
-    try:
-        spreadsheet = get_spreadsheet()
-        try:
-            sheet = spreadsheet.worksheet("file_list")
-        except gspread.exceptions.WorksheetNotFound:
-            sheet = spreadsheet.add_worksheet(title="file_list", rows="100", cols="1")
-        existing_list = load_file_names()
-        combined = list(set(existing_list + new_names))
-        sheet.clear()
-        df = pd.DataFrame(combined, columns=["파일명"])
-        data_to_save = [df.columns.values.tolist()] + df.values.tolist()
-        sheet.update(range_name="A1", values=data_to_save)
-        load_file_names.clear()
-    except Exception as e:
-        st.sidebar.error(f"⚠ 파일 목록 저장 실패: {e}")
-
-# ⭐ [2번 해결책: 메모리 다이어트] max_entries=1 추가
+# 시트 이름 매개변수 추가
 @st.cache_data(ttl=1800, max_entries=1, show_spinner=False)
-def load_file_names():
+def load_file_names(sheet_name="file_list_today"):
     try:
         spreadsheet = get_spreadsheet()
-        sheet = spreadsheet.worksheet("file_list")
+        sheet = spreadsheet.worksheet(sheet_name)
         data = sheet.get_all_values()
         if len(data) > 1:
             return [row[0] for row in data[1:] if row and row[0].strip() != ""]
@@ -142,8 +163,7 @@ def load_file_names():
         st.sidebar.error(f"⚠ 파일 목록 불러오기 실패: {e}")
     return []
 
-# ⭐ [2번 해결책: 메모리 다이어트] max_entries=1 추가
-@st.cache_data(ttl=21600, max_entries=1, show_spinner=False)  # 6시간 동안 구글 서버에 재요청 안 함
+@st.cache_data(ttl=21600, max_entries=1, show_spinner=False)
 def load_from_sheet(sheet_name):
     try:
         spreadsheet = get_spreadsheet()
@@ -157,19 +177,6 @@ def load_from_sheet(sheet_name):
         st.sidebar.error(f"⚠ 데이터 불러오기 실패: {e}")
     return pd.DataFrame()
 
-def clear_sheet(sheet_name):
-    try:
-        spreadsheet = get_spreadsheet()
-        sheet = spreadsheet.worksheet(sheet_name)
-        sheet.clear()
-        load_from_sheet.clear()
-        load_file_names.clear()
-    except gspread.exceptions.WorksheetNotFound:
-        pass
-    except Exception as e:
-        st.sidebar.error(f"⚠ 데이터 비우기 실패: {e}")
-
-# ⭐ [2번 해결책: 메모리 다이어트] max_entries=1 추가
 @st.cache_data(ttl=290, max_entries=1, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
     import xml.etree.ElementTree as ET
@@ -519,7 +526,10 @@ with st.sidebar:
     
     st.caption("💡 공유 중인 승객 데이터의 날짜(제목)를 확인하신 후, 알맞은 조회 일자를 선택해 주세요.")
     
+    # ⭐ [타겟 시트 동적 지정]
     target_date = tomorrow_date if "내일" in date_option else today_date
+    target_sheet = "pax_tomorrow" if "내일" in date_option else "pax_today"
+    target_list_sheet = "file_list_tomorrow" if "내일" in date_option else "file_list_today"
         
     display_date_str = target_date.strftime("%Y년 %m월 %d일")
     api_target_date_str = target_date.strftime("%Y%m%d")
@@ -559,9 +569,10 @@ def thread_wrapper(func, *args):
 
 with st.spinner("⏳ 실시간 게이트 및 승객 데이터를 불러오는 중입니다..."):
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        # ⭐ 스레드 인자 변경 (target_sheet 사용)
         future_api = executor.submit(thread_wrapper, fetch_realtime_gate_info, api_target_date_str)
-        future_pax = executor.submit(thread_wrapper, load_from_sheet, "pax_data")
-        future_files = executor.submit(thread_wrapper, load_file_names)
+        future_pax = executor.submit(thread_wrapper, load_from_sheet, target_sheet)
+        future_files = executor.submit(thread_wrapper, load_file_names, target_list_sheet)
         
         df_g = future_api.result()
         saved_pax_df = future_pax.result()
