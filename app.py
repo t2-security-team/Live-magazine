@@ -13,37 +13,31 @@ import concurrent.futures
 import threading
 from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 
-try:
-    from streamlit_autorefresh import st_autorefresh
-except ImportError:
-    st_autorefresh = None
-
 st.set_page_config(page_title="T2 보안검색 환승부 잡지", layout="wide", initial_sidebar_state="collapsed")
 
-# 현재 한국 시간
-now_kst_time = datetime.now(timezone(timedelta(hours=9)))
+# KST 시간 세팅
+KST = timezone(timedelta(hours=9))
+now_kst_time = datetime.now(KST)
 today_date_str = now_kst_time.strftime("%Y-%m-%d")
+tomorrow_date_str = (now_kst_time + timedelta(days=1)).strftime("%Y-%m-%d")
 
 if "last_updated" not in st.session_state:
     st.session_state["last_updated"] = now_kst_time.strftime("%Y-%m-%d %H:%M:%S")
 
-# ⭐ [1번 해결책] 새벽 1시 자동 캐시 초기화 엔진 (메모리 찌꺼기 완벽 제거)
+# 새벽 1시 자동 캐시 초기화 엔진 (구글 시트 삭제 아님! 메모리만 비워줌)
 if "last_auto_clear" not in st.session_state:
     st.session_state["last_auto_clear"] = None
 
-# 현재 시간이 새벽 1시(01:00~01:59)이고, 오늘 아직 청소를 안 했다면 캐시만 조용히 싹 비움
 if now_kst_time.hour == 1 and st.session_state["last_auto_clear"] != today_date_str:
     try:
-        # 데이터 원본(구글시트)은 건드리지 않고, 임시 보관 중인 '캐시(메모리)'만 삭제합니다.
         get_gspread_client.clear()
         get_spreadsheet.clear()
-        load_file_names.clear()
-        load_from_sheet.clear()
+        load_file_list.clear()
+        load_pax_data.clear()
         fetch_realtime_gate_info.clear()
     except Exception:
         pass
     st.session_state["last_auto_clear"] = today_date_str
-
 
 SHEET_NAME = "보안검색_데이터_공유"
 
@@ -54,24 +48,16 @@ st.components.v1.html(
     var parentDoc = parentWin.document;
 
     function force5MinRefresh() {
-        console.log("⏰ [5분 자동갱신] 최신 게이트 데이터를 불러옵니다.");
         var btns = parentDoc.querySelectorAll('button');
         var clicked = false;
-        
         btns.forEach(function(b) {
             if (b.innerText.includes("업데이트하기") || b.innerText.includes("실시간 업데이트")) {
                 b.click();
                 clicked = true;
             }
         });
-        
-        // 버튼을 못 찾거나 클릭에 실패하면 무조건 페이지 전체 강제 새로고침!
-        if (!clicked) {
-            parentWin.location.reload();
-        }
+        if (!clicked) { parentWin.location.reload(); }
     }
-
-    // 300,000ms (5분) 마다 무조건 실행
     setInterval(force5MinRefresh, 300000);
     </script>
     """,
@@ -81,10 +67,7 @@ st.components.v1.html(
 @st.cache_resource(show_spinner=False)
 def get_gspread_client():
     creds_dict = dict(st.secrets["gcp"])
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
-    ]
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     return gspread.authorize(creds)
 
@@ -93,83 +76,33 @@ def get_spreadsheet():
     client = get_gspread_client()
     return client.open(SHEET_NAME)
 
-def save_to_sheet(df, sheet_name):
-    try:
-        spreadsheet = get_spreadsheet()
-        try:
-            sheet = spreadsheet.worksheet(sheet_name)
-        except gspread.exceptions.WorksheetNotFound:
-            sheet = spreadsheet.add_worksheet(title=sheet_name, rows="1000", cols="20")
-        sheet.clear()
-        data_to_save = [df.columns.values.tolist()] + df.fillna("").astype(str).values.tolist()
-        sheet.update(range_name="A1", values=data_to_save)
-        load_from_sheet.clear()
-        return True
-    except Exception as e:
-        st.sidebar.error(f"⚠ 데이터 저장 실패: {e}")
-        return False
-
-def append_file_names(new_names):
-    if not new_names: return
-    try:
-        spreadsheet = get_spreadsheet()
-        try:
-            sheet = spreadsheet.worksheet("file_list")
-        except gspread.exceptions.WorksheetNotFound:
-            sheet = spreadsheet.add_worksheet(title="file_list", rows="100", cols="1")
-        existing_list = load_file_names()
-        combined = list(set(existing_list + new_names))
-        sheet.clear()
-        df = pd.DataFrame(combined, columns=["파일명"])
-        data_to_save = [df.columns.values.tolist()] + df.values.tolist()
-        sheet.update(range_name="A1", values=data_to_save)
-        load_file_names.clear()
-    except Exception as e:
-        st.sidebar.error(f"⚠ 파일 목록 저장 실패: {e}")
-
-# ⭐ [2번 해결책: 메모리 다이어트] max_entries=1 추가
+# ⭐ 뷰어는 자기 날짜 꼬리표만 보고 필터링
 @st.cache_data(ttl=1800, max_entries=1, show_spinner=False)
-def load_file_names():
+def load_file_list():
     try:
         spreadsheet = get_spreadsheet()
         sheet = spreadsheet.worksheet("file_list")
         data = sheet.get_all_values()
         if len(data) > 1:
-            return [row[0] for row in data[1:] if row and row[0].strip() != ""]
-    except gspread.exceptions.WorksheetNotFound:
-        pass
-    except Exception as e:
-        st.sidebar.error(f"⚠ 파일 목록 불러오기 실패: {e}")
-    return []
-
-# ⭐ [2번 해결책: 메모리 다이어트] max_entries=1 추가
-@st.cache_data(ttl=21600, max_entries=1, show_spinner=False)  # 6시간 동안 구글 서버에 재요청 안 함
-def load_from_sheet(sheet_name):
-    try:
-        spreadsheet = get_spreadsheet()
-        sheet = spreadsheet.worksheet(sheet_name)
-        data = sheet.get_all_values()
-        if len(data) > 1:
-            return pd.DataFrame(data[1:], columns=data[0])
-    except gspread.exceptions.WorksheetNotFound:
-        pass
-    except Exception as e:
-        st.sidebar.error(f"⚠ 데이터 불러오기 실패: {e}")
+            df = pd.DataFrame(data[1:], columns=data[0])
+            if '조회일자' not in df.columns: df['조회일자'] = today_date_str
+            return df
+    except: pass
     return pd.DataFrame()
 
-def clear_sheet(sheet_name):
+@st.cache_data(ttl=21600, max_entries=1, show_spinner=False)
+def load_pax_data():
     try:
         spreadsheet = get_spreadsheet()
-        sheet = spreadsheet.worksheet(sheet_name)
-        sheet.clear()
-        load_from_sheet.clear()
-        load_file_names.clear()
-    except gspread.exceptions.WorksheetNotFound:
-        pass
-    except Exception as e:
-        st.sidebar.error(f"⚠ 데이터 비우기 실패: {e}")
+        sheet = spreadsheet.worksheet("pax_data")
+        data = sheet.get_all_values()
+        if len(data) > 1:
+            df = pd.DataFrame(data[1:], columns=data[0])
+            if '조회일자' not in df.columns: df['조회일자'] = today_date_str
+            return df
+    except: pass
+    return pd.DataFrame()
 
-# ⭐ [2번 해결책: 메모리 다이어트] max_entries=1 추가
 @st.cache_data(ttl=290, max_entries=1, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
     import xml.etree.ElementTree as ET
@@ -177,77 +110,41 @@ def fetch_realtime_gate_info(search_date_str):
         api_key = str(st.secrets["api"]["service_key"]).strip()
         url = "https://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp"
         req_url = f"{url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=xml&numOfRows=1800&pageNo=1"
-        
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        }
+        headers = {"User-Agent": "Mozilla/5.0"}
         
         response = None
-        max_retries = 3
-        
-        for attempt in range(max_retries):
+        for attempt in range(3):
             try:
                 response = requests.get(req_url, headers=headers, timeout=(12, 30))
-                if response.status_code == 200:
-                    break
-            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
-                if attempt == max_retries - 1:
-                    st.error("⚠ [네트워크 오류] 공공데이터포털 서버 연결이 타임아웃되었습니다.")
-                    return pd.DataFrame()
+                if response.status_code == 200: break
+            except:
+                if attempt == 2: return pd.DataFrame()
                 time.sleep(2)
                 
-        if not response or response.status_code != 200:
-            st.error(f"⚠ [통신 오류] API 서버 응답 실패 (상태 코드: {response.status_code if response else '연결 불가'})")
-            return pd.DataFrame()
+        if not response or response.status_code != 200: return pd.DataFrame()
 
         err_text = response.text
-        if "NORMAL SERVICE" not in err_text and ("returnReasonCode" in err_text or "errMsg" in err_text):
-            if "22" in err_text or "EXCEEDS" in err_text:
-                st.error("🚨 [에러 22] 일일 API 호출 허용량(트래픽)을 모두 초과했습니다! (자정 리셋)")
-            elif "30" in err_text or "NOT_REGISTERED" in err_text:
-                st.error("🚨 [에러 30] 등록되지 않은 인증키이거나 활용신청 승인 오류입니다.")
-            elif "04" in err_text or "HTTP_ERROR" in err_text:
-                st.error("🚨 [에러 04] 인천공항 연계 DB 서버 오류입니다. (잠시 후 다시 시도해 주세요)")
-            elif "12" in err_text or "NO_OPENAPI_SERVICE" in err_text:
-                st.error("🚨 [에러 12] API 주소(URL) 경로 오류입니다.")
-            else:
-                st.error(f"🚨 [API 오류] 서버 응답 내용: {err_text[:150]}")
-            return pd.DataFrame()
+        if "NORMAL SERVICE" not in err_text: return pd.DataFrame()
 
-        try:
-            root = ET.fromstring(err_text)
-        except ET.ParseError:
-            st.error("⚠ [파싱 오류] 서버 응답을 XML로 변환할 수 없습니다.")
-            return pd.DataFrame()
-            
+        root = ET.fromstring(err_text)
         items = []
         for item in root.findall(".//item"):
             flight_id = (item.findtext("flightId") or item.findtext("fid") or "").replace('DAL', 'DL').replace('KAL', 'KE').replace('AAR', 'OZ')
-            
             time_str = str(item.findtext("estimatedDatetime") or item.findtext("scheduleDatetime") or "")
             raw_time = time_str[-4:] if len(time_str) >= 4 else time_str
             formatted_time = f"{raw_time[:2]}:{raw_time[2:]}" if len(raw_time) == 4 else raw_time
             
             items.append({
-                '편명': clean_flight_no(flight_id),
-                '시간': formatted_time,
+                '편명': clean_flight_no(flight_id), '시간': formatted_time,
                 '게이트': item.findtext("gateNumber") or item.findtext("fstandPosition") or "",
                 '출발지': item.findtext("airportCode") or item.findtext("airport") or "",
                 '출구': item.findtext("exitNumber") or ""
             })
         
         df = pd.DataFrame(items)
-        
-        if not df.empty:
-            df = df[df['편명'].str.startswith(('KE', 'OZ', 'DL'), na=False)]
-            
+        if not df.empty: df = df[df['편명'].str.startswith(('KE', 'OZ', 'DL'), na=False)]
         return df
-    except Exception as e:
-        err_msg = str(e)
-        if "api_key" in locals():
-            err_msg = err_msg.replace(api_key, "****(SECRET)****")
-        st.error(f"⚠ [예외 발생] API 데이터 처리 중 오류: {err_msg}")
-        return pd.DataFrame()
+    except: return pd.DataFrame()
 
 if "toast_msg" in st.session_state:
     st.toast(st.session_state["toast_msg"], icon="✅")
@@ -259,46 +156,18 @@ st.markdown("""
     div[data-testid="stVerticalBlock"] { gap: 0px !important; }
     .element-container { margin-bottom: 0px !important; }
     iframe { margin-bottom: 0px !important; min-height: 45px !important; }
-    
-    section[data-testid="stSidebar"] div[data-testid="stSidebarUserContent"] {
-        padding-top: 0rem !important;
-        margin-top: -2.5rem !important;
-    }
-    section[data-testid="stSidebar"] .block-container {
-        padding-top: 0rem !important;
-        margin-top: -2.5rem !important;
-    }
-    
+    section[data-testid="stSidebar"] div[data-testid="stSidebarUserContent"] { padding-top: 0rem !important; margin-top: -2.5rem !important; }
     .file-box { background-color:#f0f7ff; padding:15px; border-radius:5px; margin-bottom:15px; border: 1px solid #3b82f6; display: block; overflow: visible; }
-    .file-item { font-size:13px; margin: 0 0 6px 10px !important; line-height: 1.5 !important; color: #1f2937; font-weight: normal; word-break: break-all; }
-    .file-box-title { font-size:14px; font-weight:bold; color:#1E3A8A; margin: 0 0 10px 0 !important; line-height: 1.4 !important; }
-    
-    .merged-table { width: 100%; border-collapse: collapse; text-align: center; font-family: sans-serif; margin-bottom: 0px !important; }
-    .merged-table tr { border: none !important; } 
+    .file-item { font-size:13px; margin: 0 0 6px 10px !important; line-height: 1.5 !important; color: #1f2937; }
+    .merged-table { width: 100%; border-collapse: collapse; text-align: center; margin-bottom: 0px !important; }
     .merged-table th { background-color: #f8f9fa !important; border: 1px solid #dee2e6 !important; padding: 4px; font-weight: bold; }
     .merged-table td { border: 1px solid #dee2e6 !important; padding: 3px; vertical-align: middle; font-weight: bold !important; }
-    
-    .sum-cell { font-weight: bold; color: #1E3A8A; vertical-align: middle !important; }
-    
+    .sum-cell { font-weight: bold; color: #1E3A8A; }
     .total-banner { background-color: #f0f7ff !important; padding: 4px 8px !important; border-radius: 8px; text-align: center; border: 1px solid #3b82f6; margin-bottom: 2px; margin-top: 2px; }
-    .carrier-banner { background-color: #ffffff !important; padding: 4px; border-radius: 8px; text-align: center; border: 1px solid #3b82f6; margin-bottom: 4px; display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; }
+    .carrier-banner { background-color: #ffffff !important; padding: 4px; border-radius: 8px; text-align: center; border: 1px solid #3b82f6; margin-bottom: 4px; display: flex; justify-content: center; gap: 20px; }
     .carrier-item { font-size: 14px; font-weight: bold; }
     .print-row { display: flex; flex-direction: row; gap: 15px; width: 100%; }
-    .print-col { flex: 1; min-width: 0; margin-bottom: 0px !important; }
-    
-    @media print {
-        .no-print, header, footer, [data-testid="stSidebar"], [data-testid="stHeader"], [data-testid="stToolbar"], iframe { display: none !important; }
-        html, body { height: auto !important; min-height: auto !important; padding-bottom: 0 !important; margin-bottom: 0 !important; padding-top: 0 !important; }
-        .appview-container, .main, .block-container, .element-container { padding-top: 0 !important; margin-top: 0 !important; padding-bottom: 0 !important; margin-bottom: 0 !important; }
-        div[data-testid="stVerticalBlock"] { gap: 0 !important; }
-        body { zoom: 75%; }
-        .print-row { display: flex !important; flex-direction: row !important; }
-        table { page-break-inside: auto; margin-bottom: 0px !important; }
-        tr { page-break-inside: avoid; page-break-after: auto; }
-        thead { display: table-header-group; }
-        @page { size: A4; margin-top: 12mm !important; margin-bottom: 12mm !important; margin-left: 10mm !important; margin-right: 10mm !important; }
-        @page :first { margin-top: 0mm !important; }
-    }
+    .print-col { flex: 1; min-width: 0; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -335,20 +204,17 @@ IATA_CITY_MAP = {
 def format_route(val):
     val = str(val).strip().upper()
     if val in IATA_CITY_MAP: return f"{IATA_CITY_MAP[val]}({val})"
-    
     match = re.search(r'^(.*?)\s*\((.*?)\)$', val)
     if match:
         part1, part2 = match.group(1).strip(), match.group(2).strip().upper()
         if re.match(r'^[A-Z]{3}$', part2):
             city = IATA_CITY_MAP.get(part2, part1) if not part1 or re.match(r'^[a-zA-Z/]+$', part1) else part1
             return f"{city}({part2})" if city else f"({part2})"
-            
     if '/' in val: val = val.split('/')[0].strip()
     val_upper = val.upper()
     if re.match(r'^[A-Z]{3}$', val_upper):
         city = IATA_CITY_MAP.get(val_upper, "")
         return f"{city}({val_upper})" if city else val_upper
-        
     return val
 
 def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_incoming, font_size, target_date, now_kst):
@@ -363,47 +229,17 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
     
     html_parts.append("""
     <style>
-    .icon-container {
-        position: absolute; 
-        right: 2px;
-        width: 28px; height: 16px;
-        border-bottom: 1.5px solid #333333; 
-        overflow: hidden;
-    }
-    .plane-landing {
-        position: absolute; bottom: 0.5px; color: #333333;
-        animation: landing-anim 2.5s ease-in-out infinite;
-    }
-    @keyframes landing-anim {
-        0% { transform: translate(-15px, -12px) rotate(25deg); }
-        35% { transform: translate(1px, 0px) rotate(0deg); } 
-        70% { transform: translate(12px, 0px) rotate(0deg); } 
-        100% { transform: translate(27px, 0px) rotate(0deg); } 
-    }
-    .plane-landed {
-        position: absolute; bottom: 0.5px; left: 50%; transform: translateX(-50%); color: #333333;
-    }
-    .pax-cell-container {
-        position: relative;
-        display: flex; 
-        align-items: center; 
-        justify-content: center; 
-        width: 100%;
-        min-height: 20px;
-        padding-right: 40px;
-    }
+    .icon-container { position: absolute; right: 2px; width: 28px; height: 16px; border-bottom: 1.5px solid #333333; overflow: hidden; }
+    .plane-landing { position: absolute; bottom: 0.5px; color: #333333; animation: landing-anim 2.5s ease-in-out infinite; }
+    @keyframes landing-anim { 0% { transform: translate(-15px, -12px) rotate(25deg); } 35% { transform: translate(1px, 0px) rotate(0deg); } 70% { transform: translate(12px, 0px) rotate(0deg); } 100% { transform: translate(27px, 0px) rotate(0deg); } }
+    .plane-landed { position: absolute; bottom: 0.5px; left: 50%; transform: translateX(-50%); color: #333333; }
+    .pax-cell-container { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; min-height: 20px; padding-right: 40px; }
     @media print { .icon-container { display: none !important; } }
     </style>
     """)
     
     html_parts.append(f'<table class="merged-table" style="font-size: {font_size}px !important;"><thead><tr>')
-    html_parts.append(f'<th style="width:14%; font-size:{font_size}px !important;">시간</th>')
-    html_parts.append(f'<th style="width:17%; font-size:{font_size}px !important;">편명</th>')
-    html_parts.append(f'<th style="font-size:{font_size}px !important;">출발지</th>')
-    html_parts.append(f'<th style="width:14%; font-size:{font_size}px !important;">게이트</th>')
-    html_parts.append(f'<th style="width:15%; font-size:{font_size}px !important;">승객</th>')
-    html_parts.append(f'<th style="width:12%; font-size:{font_size}px !important;">합계</th>')
-    html_parts.append('</tr></thead><tbody>')
+    html_parts.append(f'<th style="width:14%; font-size:{font_size}px !important;">시간</th><th style="width:17%; font-size:{font_size}px !important;">편명</th><th style="font-size:{font_size}px !important;">출발지</th><th style="width:14%; font-size:{font_size}px !important;">게이트</th><th style="width:15%; font-size:{font_size}px !important;">승객</th><th style="width:12%; font-size:{font_size}px !important;">합계</th></tr></thead><tbody>')
     
     df['hour_val'] = df['시간'].astype(str).str.extract(r'^(\d{1,2})').fillna(0).astype(int)
     hour_counts = df['hour_val'].value_counts().sort_index()
@@ -416,69 +252,45 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
         flt = str(row['편명']).upper()
         row_style_css, text_style = "", ""
         
-        is_past_20_mins = False
-        is_blinking = False
-        is_landing = False
-        is_landed = False
+        is_past_20_mins, is_blinking, is_landing, is_landed = False, False, False, False
         
         try:
             time_parts = str(row['시간']).split(':')
             if len(time_parts) == 2:
-                f_hour, f_min = int(time_parts[0]), int(time_parts[1])
-                flight_dt = target_date.replace(hour=f_hour, minute=f_min, second=0, microsecond=0)
-                
+                flight_dt = target_date.replace(hour=int(time_parts[0]), minute=int(time_parts[1]), second=0, microsecond=0)
                 diff_mins = (now_kst - flight_dt).total_seconds() / 60.0
-                
-                if diff_mins >= 20: 
-                    is_past_20_mins = True  
-                elif 0 <= diff_mins < 10: 
-                    is_blinking = True      
-                    is_landing = True       
-                elif 10 <= diff_mins < 20:
-                    is_landed = True        
+                if diff_mins >= 20: is_past_20_mins = True  
+                elif 0 <= diff_mins < 10: is_blinking = True; is_landing = True       
+                elif 10 <= diff_mins < 20: is_landed = True        
         except: pass
             
         if is_past_20_mins:
             text_style = " text-decoration: line-through; text-decoration-color: black; color: #6B7280;"
             row_style_css = "background-color: #F9FAFB;" 
-        elif opt_incoming and is_blinking:
-            row_style_css = "background-color: #FFFF00;"
+        elif opt_incoming and is_blinking: row_style_css = "background-color: #FFFF00;"
         else:
             if opt_airline:
                 if flt.startswith("DL"): row_style_css = "background-color: #E3F2FD;" 
                 elif flt.startswith("OZ"): row_style_css = "background-color: #FDF4F7;" 
             elif opt_peak:
-                if current_h == 16: row_style_css = "background-color: #F4FAFD;" 
-                elif current_h == 17: row_style_css = "background-color: #FFFDF0;" 
-                elif current_h == 18: row_style_css = "background-color: #FFF5F8;" 
-            else:
-                row_style_css = "background-color: #ffffff;"
+                if current_h in [16, 17, 18]: row_style_css = ["background-color: #F4FAFD;", "background-color: #FFFDF0;", "background-color: #FFF5F8;"][current_h-16] 
+            else: row_style_css = "background-color: #ffffff;"
                 
         td_style = f' style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}"'
         
-        시간_val = html.escape(str(row["시간"]))
-        편명_val = html.escape(str(row["편명"]))
-        출발지_val = html.escape(str(row.get("출발지", "")))
-        게이트_val = html.escape(str(row["게이트"]))
-        
+        시간_val, 편명_val, 출발지_val, 게이트_val = html.escape(str(row["시간"])), html.escape(str(row["편명"])), html.escape(str(row.get("출발지", ""))), html.escape(str(row["게이트"]))
         pax_text = str(row.get("p_display", ""))
         pax_content = html.escape(pax_text)
         
         if pax_text and (is_landing or is_landed):
             plane_svg = '<svg viewBox="0 0 24 24" width="16" height="15" fill="currentColor"><path d="M22,12 c0,1.1 -0.9,2 -2,2 H15 l-4,5 h-2 l2.5,-5 H6 l-2.5,2.5 H2 l1.5,-3.5 C3.2,12.7 3.2,11.3 3.5,11 L2,7.5 h1.5 l2.5,2.5 h5.5 l-2.5,-5 h2 l4,5 h5 c1.1,0 2,0.9 2,2 z" /></svg>'
-            
-            if is_landing:
-                icon_div = f'<div class="icon-container"><div class="plane-landing">{plane_svg}</div></div>'
-            else: 
-                icon_div = f'<div class="icon-container"><div class="plane-landed">{plane_svg}</div></div>'
-                
+            icon_div = f'<div class="icon-container"><div class="{"plane-landing" if is_landing else "plane-landed"}">{plane_svg}</div></div>'
             pax_content = f'<div class="pax-cell-container"><span>{html.escape(pax_text)}</span> {icon_div}</div>'
 
         html_parts.append(f'<tr><td{td_style}>{시간_val}</td><td{td_style}>{편명_val}</td><td{td_style}>{출발지_val}</td><td{td_style}>{게이트_val}</td><td{td_style}>{pax_content}</td>')
         
         if current_h not in processed_hours:
-            sum_font = font_size + 1
-            html_parts.append(f'<td rowspan="{hour_counts[current_h]}" class="sum-cell" style="background-color: #ffffff !important; font-size: {sum_font}px !important; font-weight: bold !important;"><div style="position: relative; z-index: 10;">{hour_sums[current_h]:,}</div></td>')
+            html_parts.append(f'<td rowspan="{hour_counts[current_h]}" class="sum-cell" style="background-color: #ffffff !important; font-size: {font_size + 1}px !important; font-weight: bold !important;"><div style="position: relative; z-index: 10;">{hour_sums[current_h]:,}</div></td>')
             processed_hours.add(current_h)
         html_parts.append('</tr>')
         
@@ -490,10 +302,9 @@ with st.sidebar:
     
     if st.button("🔄 업데이트하기", use_container_width=True):
         fetch_realtime_gate_info.clear()
-        load_from_sheet.clear()
-        load_file_names.clear()
+        load_pax_data.clear()
+        load_file_list.clear()
         st.session_state["toast_msg"] = "모든 정보를 최신 상태로 업데이트했습니다!"
-        KST = timezone(timedelta(hours=9))
         st.session_state["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
         st.rerun()
         
@@ -501,25 +312,17 @@ with st.sidebar:
     st.caption("💡 5분(300초)마다 자동으로 최신 게이트 정보를 갱신합니다!")
 
     st.divider()
-
     file_list_placeholder = st.container()
     st.divider()
 
-    KST = timezone(timedelta(hours=9))
-    today_date = datetime.now(KST)
-    tomorrow_date = today_date + timedelta(days=1)
+    today_ui_str = f"오늘 ({now_kst_time.strftime('%y')}년 {now_kst_time.month}월 {now_kst_time.day}일)"
+    tomorrow_ui_str = f"내일 ({(now_kst_time + timedelta(days=1)).strftime('%y')}년 {(now_kst_time + timedelta(days=1)).month}월 {(now_kst_time + timedelta(days=1)).day}일)"
     
-    today_str = f"{today_date.strftime('%y')}년 {today_date.month}월 {today_date.day}일"
-    tomorrow_str = f"{tomorrow_date.strftime('%y')}년 {tomorrow_date.month}월 {tomorrow_date.day}일"
-
-    option_today = f"오늘 ({today_str})"
-    option_tomorrow = f"내일 ({tomorrow_str})"
+    date_option = st.radio("📅 확인할 게이트 날짜 선택", [today_ui_str, tomorrow_ui_str], index=0)
     
-    date_option = st.radio("📅 확인할 게이트 날짜 선택", [option_today, option_tomorrow], index=0)
-    
-    st.caption("💡 공유 중인 승객 데이터의 날짜(제목)를 확인하신 후, 알맞은 조회 일자를 선택해 주세요.")
-    
-    target_date = tomorrow_date if "내일" in date_option else today_date
+    # ⭐ [핵심 3] 시계와 버튼에 따라 정확히 자기 꼬리표만 찾아감
+    target_date = (now_kst_time + timedelta(days=1)) if "내일" in date_option else now_kst_time
+    target_date_str = target_date.strftime("%Y-%m-%d")
         
     display_date_str = target_date.strftime("%Y년 %m월 %d일")
     api_target_date_str = target_date.strftime("%Y%m%d")
@@ -531,23 +334,19 @@ with st.sidebar:
     opt_peak = (vis_option == "⏰ 첨두시간 색상 표시 (16~18시)")
     opt_incoming = (vis_option == "곧 들어오는 비행기 표시 (형광색)")
     
-    current_hour = datetime.now(KST).hour
+    current_hour = now_kst_time.hour
     default_start_hour = max(0, current_hour - 1) if "오늘" in date_option else 0
-    
     time_range = st.slider("조회 시간대 (시)", 0, 24, (default_start_hour, 24))
     base_font_size = st.slider("🔠 표 글자 조절 (px)", min_value=10, max_value=17, value=13, step=1)
     
     st.divider()
-    
     st.header("🛠️ 시스템 복구")
-    st.caption("에러코드 발생 시 눌러주세요.")
     if st.button("🗑️ 전체 캐시 초기화", use_container_width=True, type="secondary"):
         fetch_realtime_gate_info.clear()
-        load_from_sheet.clear()
-        load_file_names.clear()
+        load_pax_data.clear()
+        load_file_list.clear()
         get_spreadsheet.clear()
         get_gspread_client.clear()
-        
         st.session_state["toast_msg"] = "모든 캐시를 비우고 시스템 연결을 초기화했습니다!"
         st.rerun()
 
@@ -560,21 +359,26 @@ def thread_wrapper(func, *args):
 with st.spinner("⏳ 실시간 게이트 및 승객 데이터를 불러오는 중입니다..."):
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
         future_api = executor.submit(thread_wrapper, fetch_realtime_gate_info, api_target_date_str)
-        future_pax = executor.submit(thread_wrapper, load_from_sheet, "pax_data")
-        future_files = executor.submit(thread_wrapper, load_file_names)
+        future_pax = executor.submit(thread_wrapper, load_pax_data)
+        future_files = executor.submit(thread_wrapper, load_file_list)
         
         df_g = future_api.result()
-        saved_pax_df = future_pax.result()
-        saved_files = future_files.result()
+        full_pax_df = future_pax.result()
+        full_files_df = future_files.result()
+
+# ⭐ 꼬리표 필터링!
+if not full_pax_df.empty: saved_pax_df = full_pax_df[full_pax_df['조회일자'] == target_date_str]
+else: saved_pax_df = pd.DataFrame()
+
+if not full_files_df.empty: saved_files = full_files_df[full_files_df['조회일자'] == target_date_str]['파일명'].tolist()
+else: saved_files = []
 
 with file_list_placeholder:
     if not saved_pax_df.empty:
         with st.expander("✅ 현재 공유중인 승객 데이터 목록", expanded=True):
             if saved_files:
-                for fname in saved_files:
-                    st.markdown(f"<p class='file-item'>• {html.escape(str(fname))}</p>", unsafe_allow_html=True)
-            else:
-                st.markdown("<p class='file-item'>• 데이터 적용 완료</p>", unsafe_allow_html=True)
+                for fname in saved_files: st.markdown(f"<p class='file-item'>• {html.escape(str(fname))}</p>", unsafe_allow_html=True)
+            else: st.markdown("<p class='file-item'>• 데이터 적용 완료</p>", unsafe_allow_html=True)
 
 st.markdown(f"""
     <style>
@@ -583,9 +387,7 @@ st.markdown(f"""
     </style>
 """, unsafe_allow_html=True)
 
-p_all = []
-if not saved_pax_df.empty:
-    p_all.append(saved_pax_df)
+p_all = [saved_pax_df] if not saved_pax_df.empty else []
 
 if not p_all or df_g.empty:
     st.markdown("<h2 style='text-align: center;'>✈ T2 보안검색 환승부 잡지 (실시간 연동) ✈</h2>", unsafe_allow_html=True)
@@ -596,31 +398,22 @@ if not p_all or df_g.empty:
         * **실시간 게이트 연동:** 게이트 정보는 실시간으로 도착편을 조회합니다.
         * **5분 자동 갱신:** 별도의 조작 없이도 5분마다 최신 데이터를 자동으로 새로고침합니다.
         * **업데이트:** 게이트 정보가 변경되었을 수 있으니 언제든 사이드바의 **[🔄 업데이트하기]** 버튼을 눌러주세요.
-        * **스크롤 유지:** 자동 갱신 시에도 보시던 화면 위치가 그대로 유지됩니다.
         """)
     if df_g.empty:
         st.info(f"🔄 {display_date_str}의 실시간 공항 API에서 게이트 데이터를 불러오는 중이거나 데이터가 없습니다.")
 else:
     df_p = pd.concat(p_all)
-    
     if '편명' not in df_p.columns:
-        st.sidebar.error("🚨 [구글 시트 오류] 시트 상단에 '편명' 컬럼이 없거나 이름이 잘못되었습니다. (예: 띄어쓰기 등)")
+        st.sidebar.error("🚨 [구글 시트 오류] 시트 상단에 '편명' 컬럼이 없거나 이름이 잘못되었습니다.")
         df_p['편명'] = ""
         
-    dup_cols = ['편명']
-    if '시간' in df_p.columns:
-        dup_cols.append('시간')
-    elif '날짜' in df_p.columns:
-        dup_cols.append('날짜')
-    df_p = df_p.drop_duplicates(dup_cols)
-    
+    df_p = df_p.drop_duplicates(['편명'])
     final = pd.merge(df_g, df_p, on='편명', how='inner', suffixes=('_api', '_pax'))
     
     if '출발지_pax' in final.columns:
         cond_empty = final['출발지_pax'].isna() | (final['출발지_pax'].astype(str).str.strip() == '')
         final['출발지'] = np.where(cond_empty, final['출발지_api'], final['출발지_pax'])
-    else:
-        final['출발지'] = final['출발지_api']
+    else: final['출발지'] = final['출발지_api']
         
     if '출발지' in final.columns:
         final['출발지'] = final['출발지'].apply(format_route)
@@ -628,21 +421,16 @@ else:
     
     if not final.empty:
         if '승객수' not in final.columns:
-            st.sidebar.error("🚨 [구글 시트 오류] 시트에 '승객수' 컬럼이 없거나 오타(예: '승객 수')가 있습니다. 시트 헤더를 확인해 주세요!")
             final['승객수'] = 0
             
         final['p_val'] = pd.to_numeric(final['승객수'], errors='coerce').fillna(0).astype(int)
         
         def format_pax_display(val):
             if pd.isna(val) or str(val).strip() == '': return ""
-            try:
-                cleaned_val = str(val).replace(',', '').strip()
-                if cleaned_val == '': return ""
-                return f"{int(float(cleaned_val)):,}"
+            try: return f"{int(float(str(val).replace(',', '').strip())):,}"
             except: return ""
                 
         final['p_display'] = final['승객수'].apply(format_pax_display)
-        
         final['hour'] = final['시간'].astype(str).str.extract(r'^(\d{1,2})').fillna(0).astype(int)
         final = final[(final['hour'] >= time_range[0]) & (final['hour'] <= time_range[1])]
         
@@ -653,12 +441,7 @@ else:
         cond_west_gate = cond_gnum_valid & (final['g_num'] <= 250)
         cond_exit_A = final['출구'].astype(str).str.strip().str.upper() == 'A'
         
-        final['구역'] = np.where(
-            cond_gnum_valid,
-            np.where(cond_west_gate, '서편', '동편'),
-            np.where(cond_exit_A, '서편', '동편')
-        )
-        
+        final['구역'] = np.where(cond_gnum_valid, np.where(cond_west_gate, '서편', '동편'), np.where(cond_exit_A, '서편', '동편'))
         final['게이트'] = np.where(cond_gnum_valid, final['g_num'].astype(int).astype(str), '-')
         
         total_p = final['p_val'].sum()
@@ -669,132 +452,62 @@ else:
             """
             <style>
             body { margin: 0; padding: 0; overflow: hidden; display: flex; gap: 10px; }
-            .custom-btn {
-                background-color: white; border: 1px solid #dcdcdc; color: #31333f;
-                padding: 6px 15px; font-size: 14px; border-radius: 6px; cursor: pointer;
-                font-family: sans-serif; box-shadow: 0px 1px 3px rgba(0,0,0,0.1);
-            }
+            .custom-btn { background-color: white; border: 1px solid #dcdcdc; color: #31333f; padding: 6px 15px; font-size: 14px; border-radius: 6px; cursor: pointer; font-family: sans-serif; box-shadow: 0px 1px 3px rgba(0,0,0,0.1); }
             .custom-btn:hover { border-color: #ff4b4b; color: #ff4b4b; }
             </style>
             <button class="custom-btn" onclick="window.parent.print()">📄 PDF 저장</button>
             <button class="custom-btn" onclick="takePic()" id="pic-btn">📸 전체 사진으로 저장</button>
             <button class="custom-btn" onclick="doManualRefresh()">🔄 새로고침</button>
-            
             <script>
-            var parentWin = window.parent;
-            var parentDoc = parentWin.document;
-
+            var parentWin = window.parent; var parentDoc = parentWin.document;
             function doManualRefresh() {
-                var btns = parentDoc.querySelectorAll('button');
-                var clicked = false;
-                btns.forEach(function(b) {
-                    if (b.innerText.includes("업데이트하기") || b.innerText.includes("실시간 업데이트")) {
-                        b.click();
-                        clicked = true;
-                    }
-                });
-                if (!clicked) {
-                    parentWin.location.reload();
-                }
+                var btns = parentDoc.querySelectorAll('button'); var clicked = false;
+                btns.forEach(function(b) { if (b.innerText.includes("업데이트하기") || b.innerText.includes("실시간 업데이트")) { b.click(); clicked = true; } });
+                if (!clicked) { parentWin.location.reload(); }
             }
-
             function takePic() {
-                var btn = document.getElementById('pic-btn');
-                btn.innerText = "⏳ 캡처 중... 잠시만요!";
+                var btn = document.getElementById('pic-btn'); btn.innerText = "⏳ 캡처 중... 잠시만요!";
                 try {
                     if (!parentWin.html2canvas) {
-                        var script = parentDoc.createElement('script');
-                        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-                        script.onload = function() { doCap(parentWin, parentDoc, btn); };
-                        script.onerror = function() { 
-                            alert("⚠ 라이브러리를 불러올 수 없습니다."); 
-                            btn.innerText = "📸 전체 사진으로 저장"; 
-                        };
+                        var script = parentDoc.createElement('script'); script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+                        script.onload = function() { doCap(parentWin, parentDoc, btn); }; script.onerror = function() { alert("⚠ 오류"); btn.innerText = "📸 캡처"; };
                         parentDoc.head.appendChild(script);
-                    } else {
-                        doCap(parentWin, parentDoc, btn);
-                    }
-                } catch(e) {
-                    alert("⚠ 브라우저 보안 설정으로 인해 캡처가 차단되었습니다.");
-                    btn.innerText = "📸 전체 사진으로 저장";
-                }
+                    } else { doCap(parentWin, parentDoc, btn); }
+                } catch(e) { btn.innerText = "📸 캡처"; }
             }
-            
             function doCap(win, doc, btn) {
                 var target = doc.querySelector('.block-container') || doc.querySelector('.main');
                 var hides = doc.querySelectorAll('[data-testid="stSidebar"], header, iframe, .icon-container');
-                
                 var appView = doc.querySelector('.appview-container') || doc.querySelector('[data-testid="stAppViewContainer"]');
                 var mainView = doc.querySelector('.main');
-                
-                var oldAppOverflow = appView ? appView.style.overflow : '';
-                var oldAppHeight = appView ? appView.style.height : '';
-                var oldMainOverflow = mainView ? mainView.style.overflow : '';
-                var oldMainHeight = mainView ? mainView.style.height : '';
-                var oldTargetPaddingTop = target.style.paddingTop;
-                var oldTargetMarginTop = target.style.marginTop;
-                var oldTargetWidth = target.style.width;
-                var oldTargetMaxWidth = target.style.maxWidth;
-                
+                var oldAppOverflow = appView ? appView.style.overflow : ''; var oldAppHeight = appView ? appView.style.height : '';
+                var oldMainOverflow = mainView ? mainView.style.overflow : ''; var oldMainHeight = mainView ? mainView.style.height : '';
                 if(appView) { appView.style.overflow = 'visible'; appView.style.height = 'auto'; }
                 if(mainView) { mainView.style.overflow = 'visible'; mainView.style.height = 'auto'; }
-                
-                target.style.paddingTop = '10px';
-                target.style.marginTop = '0px';
-                target.style.width = '1100px'; 
-                target.style.maxWidth = '1100px';
-                
+                target.style.paddingTop = '10px'; target.style.marginTop = '0px'; target.style.width = '1100px'; target.style.maxWidth = '1100px';
                 hides.forEach(function(e){ e.dataset.old = e.style.display; e.style.display = 'none'; });
-                
                 setTimeout(function() {
-                    win.html2canvas(target, { 
-                        scale: 6, 
-                        useCORS: true, 
-                        backgroundColor: '#ffffff'
-                    }).then(function(canvas) {
-                        var link = doc.createElement('a');
-                        link.download = '보안검색_잡지_전체.png';
-                        link.href = canvas.toDataURL('image/png');
-                        link.click();
-                    }).catch(function(err) {
-                        alert("사진 생성 중 오류가 발생했습니다.");
+                    win.html2canvas(target, { scale: 6, useCORS: true, backgroundColor: '#ffffff' }).then(function(canvas) {
+                        var link = doc.createElement('a'); link.download = '잡지.png'; link.href = canvas.toDataURL('image/png'); link.click();
                     }).finally(function() {
                         if(appView) { appView.style.overflow = oldAppOverflow; appView.style.height = oldAppHeight; }
                         if(mainView) { mainView.style.overflow = oldMainOverflow; mainView.style.height = oldMainHeight; }
-                        
-                        target.style.paddingTop = oldTargetPaddingTop;
-                        target.style.marginTop = oldTargetMarginTop;
-                        target.style.width = oldTargetWidth;
-                        target.style.maxWidth = oldTargetMaxWidth;
-                        hides.forEach(function(e){ e.style.display = e.dataset.old || ''; });
-                        btn.innerText = "📸 전체 사진으로 저장";
+                        target.style.paddingTop = ''; target.style.marginTop = ''; target.style.width = ''; target.style.maxWidth = '';
+                        hides.forEach(function(e){ e.style.display = e.dataset.old || ''; }); btn.innerText = "📸 전체 사진으로 저장";
                     });
                 }, 800);
             }
-
             function doScrollLogic() {
                 var scrollContainer = parentDoc.querySelector('.main') || parentWin;
                 var savedScroll = parentWin.sessionStorage.getItem('stScrollPos');
-                if (savedScroll) {
-                    if (scrollContainer.scrollTo) {
-                        scrollContainer.scrollTo(0, parseInt(savedScroll));
-                    }
-                }
+                if (savedScroll && scrollContainer.scrollTo) { scrollContainer.scrollTo(0, parseInt(savedScroll)); }
             }
-
-            setTimeout(doScrollLogic, 100);
-            setTimeout(doScrollLogic, 300);
-            setTimeout(doScrollLogic, 600);
-            setTimeout(doScrollLogic, 1000);
-
+            setTimeout(doScrollLogic, 100); setTimeout(doScrollLogic, 300); setTimeout(doScrollLogic, 600); setTimeout(doScrollLogic, 1000);
             setInterval(function() {
                 var scrollContainer = parentDoc.querySelector('.main') || parentWin;
                 var scrollTop = scrollContainer.scrollTop || parentWin.scrollY || 0;
-                if(scrollTop > 0) {
-                    parentWin.sessionStorage.setItem('stScrollPos', scrollTop);
-                }
+                if(scrollTop > 0) { parentWin.sessionStorage.setItem('stScrollPos', scrollTop); }
             }, 500);
-
             </script>
             """, height=45
         )
@@ -815,7 +528,7 @@ else:
         west_p = final[final['구역'] == '서편']['p_val'].sum()
         east_p = final[final['구역'] == '동편']['p_val'].sum()
         
-        w_html = generate_table_html(final[final['구역'] == '서편'], "⬅ 서편", west_p, "#DC2626", opt_airline, opt_peak, opt_incoming, base_font_size, target_date, today_date)
-        e_html = generate_table_html(final[final['구역'] == '동편'], "➡ 동편", east_p, "#2563EB", opt_airline, opt_peak, opt_incoming, base_font_size, target_date, today_date)
+        w_html = generate_table_html(final[final['구역'] == '서편'], "⬅ 서편", west_p, "#DC2626", opt_airline, opt_peak, opt_incoming, base_font_size, target_date, now_kst_time)
+        e_html = generate_table_html(final[final['구역'] == '동편'], "➡ 동편", east_p, "#2563EB", opt_airline, opt_peak, opt_incoming, base_font_size, target_date, now_kst_time)
         
         st.markdown(f'<div class="print-row">{e_html}{w_html}</div>', unsafe_allow_html=True)
