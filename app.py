@@ -28,22 +28,21 @@ if "last_updated" not in st.session_state:
     st.session_state["last_updated"] = now_kst_time.strftime("%Y-%m-%d %H:%M:%S")
 
 # =====================================================================
-# ⭐ [자정 자동 스위칭 엔진] (내일 데이터를 오늘로 자동 이관)
+# ⭐ [자정 자동 스위칭 엔진] 양쪽 사이트 완벽 연동 버전
 # =====================================================================
 def perform_midnight_migration(today_str):
     try:
         spreadsheet = get_spreadsheet()
         
-        # 1. 마이그레이션 상태를 기록할 시트 확인 (없으면 생성)
         try:
             status_sheet = spreadsheet.worksheet("system_status")
             last_mig = status_sheet.acell('B1').value
         except gspread.exceptions.WorksheetNotFound:
-            status_sheet = spreadsheet.add_worksheet(title="system_status", rows="2", cols="2")
+            status_sheet = spreadsheet.add_worksheet(title="system_status", rows=2, cols=2)
             status_sheet.update(range_name="A1", values=[["last_migration", "1999-01-01"]])
             last_mig = "1999-01-01"
             
-        # 2. 오늘 날짜로 아직 마이그레이션이 안 되었다면 실행!
+        # 오늘 날짜로 아직 마이그레이션이 안 되었다면 실행!
         if last_mig != today_str:
             try: tom_pax_data = spreadsheet.worksheet("pax_tomorrow").get_all_values()
             except: tom_pax_data = []
@@ -51,36 +50,34 @@ def perform_midnight_migration(today_str):
             try: tom_files_data = spreadsheet.worksheet("file_list_tomorrow").get_all_values()
             except: tom_files_data = []
             
-            # 3. 오늘 방 덮어쓰기 (없으면 생성)
             try: tod_pax_sheet = spreadsheet.worksheet("pax_today")
-            except: tod_pax_sheet = spreadsheet.add_worksheet("pax_today", 1000, 20)
+            except: tod_pax_sheet = spreadsheet.add_worksheet(title="pax_today", rows=1000, cols=20)
             tod_pax_sheet.clear()
             if len(tom_pax_data) > 0: tod_pax_sheet.update(range_name="A1", values=tom_pax_data)
             
             try: tod_files_sheet = spreadsheet.worksheet("file_list_today")
-            except: tod_files_sheet = spreadsheet.add_worksheet("file_list_today", 100, 1)
+            except: tod_files_sheet = spreadsheet.add_worksheet(title="file_list_today", rows=100, cols=1)
             tod_files_sheet.clear()
             if len(tom_files_data) > 0: tod_files_sheet.update(range_name="A1", values=tom_files_data)
             
-            # 4. 내일 방 비우기
             try: spreadsheet.worksheet("pax_tomorrow").clear()
             except: pass
             try: spreadsheet.worksheet("file_list_tomorrow").clear()
             except: pass
             
-            # 5. 상태 업데이트
             status_sheet.update(range_name="B1", values=[[today_str]])
             
-            # 6. 구형 캐시 비우기
-            get_gspread_client.clear()
-            get_spreadsheet.clear()
-            load_from_sheet.clear()
-            load_file_names.clear()
-            
+            try: get_gspread_client.clear()
+            except: pass
+            try: get_spreadsheet.clear()
+            except: pass
+            try: load_from_sheet.clear()
+            except: pass
+            try: load_file_names.clear()
+            except: pass
     except Exception as e:
-        pass # 백그라운드 작업이므로 실패해도 사용자 화면에는 에러를 띄우지 않음
+        pass 
 
-# 브라우저 세션당 하루에 한 번만 체크하도록 제어 (API 호출 과부하 방지)
 if st.session_state.get("last_migration_check") != today_date_str:
     perform_midnight_migration(today_date_str)
     st.session_state["last_migration_check"] = today_date_str
@@ -148,7 +145,6 @@ def get_spreadsheet():
     client = get_gspread_client()
     return client.open(SHEET_NAME)
 
-# 시트 이름 매개변수 추가
 @st.cache_data(ttl=1800, max_entries=1, show_spinner=False)
 def load_file_names(sheet_name="file_list_today"):
     try:
@@ -569,7 +565,6 @@ def thread_wrapper(func, *args):
 
 with st.spinner("⏳ 실시간 게이트 및 승객 데이터를 불러오는 중입니다..."):
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-        # ⭐ 스레드 인자 변경 (target_sheet 사용)
         future_api = executor.submit(thread_wrapper, fetch_realtime_gate_info, api_target_date_str)
         future_pax = executor.submit(thread_wrapper, load_from_sheet, target_sheet)
         future_files = executor.submit(thread_wrapper, load_file_names, target_list_sheet)
