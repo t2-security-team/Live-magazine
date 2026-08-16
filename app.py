@@ -76,7 +76,6 @@ def get_spreadsheet():
     client = get_gspread_client()
     return client.open(SHEET_NAME)
 
-# ⭐ 뷰어는 자기 날짜 꼬리표만 보고 필터링
 @st.cache_data(ttl=1800, max_entries=1, show_spinner=False)
 def load_file_list():
     try:
@@ -150,6 +149,7 @@ if "toast_msg" in st.session_state:
     st.toast(st.session_state["toast_msg"], icon="✅")
     del st.session_state["toast_msg"]
 
+# ⭐ 삭제되었던 디자인/PDF 코드 완벽 복구
 st.markdown("""
     <style>
     .main .block-container { padding-top: 0px !important; padding-bottom: 0px !important; margin-top: -15px !important; }
@@ -157,17 +157,36 @@ st.markdown("""
     .element-container { margin-bottom: 0px !important; }
     iframe { margin-bottom: 0px !important; min-height: 45px !important; }
     section[data-testid="stSidebar"] div[data-testid="stSidebarUserContent"] { padding-top: 0rem !important; margin-top: -2.5rem !important; }
+    
     .file-box { background-color:#f0f7ff; padding:15px; border-radius:5px; margin-bottom:15px; border: 1px solid #3b82f6; display: block; overflow: visible; }
     .file-item { font-size:13px; margin: 0 0 6px 10px !important; line-height: 1.5 !important; color: #1f2937; }
+    
     .merged-table { width: 100%; border-collapse: collapse; text-align: center; margin-bottom: 0px !important; }
+    .merged-table tr { border: none !important; }  /* ⭐ 합계 실선 지우기 복구 */
     .merged-table th { background-color: #f8f9fa !important; border: 1px solid #dee2e6 !important; padding: 4px; font-weight: bold; }
     .merged-table td { border: 1px solid #dee2e6 !important; padding: 3px; vertical-align: middle; font-weight: bold !important; }
     .sum-cell { font-weight: bold; color: #1E3A8A; }
+    
     .total-banner { background-color: #f0f7ff !important; padding: 4px 8px !important; border-radius: 8px; text-align: center; border: 1px solid #3b82f6; margin-bottom: 2px; margin-top: 2px; }
     .carrier-banner { background-color: #ffffff !important; padding: 4px; border-radius: 8px; text-align: center; border: 1px solid #3b82f6; margin-bottom: 4px; display: flex; justify-content: center; gap: 20px; }
     .carrier-item { font-size: 14px; font-weight: bold; }
     .print-row { display: flex; flex-direction: row; gap: 15px; width: 100%; }
     .print-col { flex: 1; min-width: 0; }
+    
+    /* ⭐ PDF 인쇄 시 사이드바 숨기기 복구 */
+    @media print {
+        .no-print, header, footer, [data-testid="stSidebar"], [data-testid="stHeader"], [data-testid="stToolbar"], iframe, .icon-container { display: none !important; }
+        html, body { height: auto !important; min-height: auto !important; padding-bottom: 0 !important; margin-bottom: 0 !important; padding-top: 0 !important; }
+        .appview-container, .main, .block-container, .element-container { padding-top: 0 !important; margin-top: 0 !important; padding-bottom: 0 !important; margin-bottom: 0 !important; }
+        div[data-testid="stVerticalBlock"] { gap: 0 !important; }
+        body { zoom: 75%; }
+        .print-row { display: flex !important; flex-direction: row !important; }
+        table { page-break-inside: auto; margin-bottom: 0px !important; }
+        tr { page-break-inside: avoid; page-break-after: auto; }
+        thead { display: table-header-group; }
+        @page { size: A4; margin-top: 12mm !important; margin-bottom: 12mm !important; margin-left: 10mm !important; margin-right: 10mm !important; }
+        @page :first { margin-top: 0mm !important; }
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -320,7 +339,6 @@ with st.sidebar:
     
     date_option = st.radio("📅 확인할 게이트 날짜 선택", [today_ui_str, tomorrow_ui_str], index=0)
     
-    # ⭐ [핵심 3] 시계와 버튼에 따라 정확히 자기 꼬리표만 찾아감
     target_date = (now_kst_time + timedelta(days=1)) if "내일" in date_option else now_kst_time
     target_date_str = target_date.strftime("%Y-%m-%d")
         
@@ -366,7 +384,6 @@ with st.spinner("⏳ 실시간 게이트 및 승객 데이터를 불러오는 �
         full_pax_df = future_pax.result()
         full_files_df = future_files.result()
 
-# ⭐ 꼬리표 필터링!
 if not full_pax_df.empty: saved_pax_df = full_pax_df[full_pax_df['조회일자'] == target_date_str]
 else: saved_pax_df = pd.DataFrame()
 
