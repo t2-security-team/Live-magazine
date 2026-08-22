@@ -24,11 +24,11 @@ tomorrow_date_str = (now_kst_time + timedelta(days=1)).strftime("%Y-%m-%d")
 if "last_updated" not in st.session_state:
     st.session_state["last_updated"] = now_kst_time.strftime("%Y-%m-%d %H:%M:%S")
 
-# ⭐ 하얀화면 방지: 마지막 정상 데이터를 기억해둘 공간
+# ⭐ 하얀화면 1차 방어: 마지막 정상 게이트 데이터를 기억해둘 공간
 if "last_valid_gate_df" not in st.session_state:
     st.session_state["last_valid_gate_df"] = pd.DataFrame()
 
-# 새벽 1시 자동 캐시 초기화 엔진
+# 새벽 1시 자동 캐시 초기화 엔진 (구글 시트 삭제 아님! 메모리만 비워줌)
 if "last_auto_clear" not in st.session_state:
     st.session_state["last_auto_clear"] = None
 
@@ -39,19 +39,21 @@ if now_kst_time.hour == 1 and st.session_state["last_auto_clear"] != today_date_
         load_file_list.clear()
         load_pax_data.clear()
         fetch_realtime_gate_info.clear()
-        st.session_state["last_valid_gate_df"] = pd.DataFrame()
+        st.session_state["last_valid_gate_df"] = pd.DataFrame() # 백업 초기화
     except Exception:
         pass
     st.session_state["last_auto_clear"] = today_date_str
 
 SHEET_NAME = "보안검색_데이터_공유"
 
-# ⭐ 자동 새로고침 최신화 (에러 경고 원천 차단)
-st.html(
+st.components.v1.html(
     """
     <script>
+    var parentWin = window.parent;
+    var parentDoc = parentWin.document;
+
     function force5MinRefresh() {
-        var btns = document.querySelectorAll('button');
+        var btns = parentDoc.querySelectorAll('button');
         var clicked = false;
         btns.forEach(function(b) {
             if (b.innerText.includes("업데이트하기") || b.innerText.includes("실시간 업데이트")) {
@@ -59,11 +61,12 @@ st.html(
                 clicked = true;
             }
         });
-        if (!clicked) { window.location.reload(); }
+        if (!clicked) { parentWin.location.reload(); }
     }
     setInterval(force5MinRefresh, 300000);
     </script>
-    """
+    """,
+    height=0, width=0
 )
 
 @st.cache_resource(show_spinner=False)
@@ -151,19 +154,20 @@ if "toast_msg" in st.session_state:
     st.toast(st.session_state["toast_msg"], icon="✅")
     del st.session_state["toast_msg"]
 
-# ⭐ 대리님 순정 CSS 원상 복구 완료
+# ⭐ 대리님 순정 디자인/PDF 코드 100% 유지!
 st.markdown("""
     <style>
     .main .block-container { padding-top: 0px !important; padding-bottom: 0px !important; margin-top: -15px !important; }
     div[data-testid="stVerticalBlock"] { gap: 0px !important; }
     .element-container { margin-bottom: 0px !important; }
+    iframe { margin-bottom: 0px !important; min-height: 45px !important; }
     section[data-testid="stSidebar"] div[data-testid="stSidebarUserContent"] { padding-top: 0rem !important; margin-top: -2.5rem !important; }
     
     .file-box { background-color:#f0f7ff; padding:15px; border-radius:5px; margin-bottom:15px; border: 1px solid #3b82f6; display: block; overflow: visible; }
     .file-item { font-size:13px; margin: 0 0 6px 10px !important; line-height: 1.5 !important; color: #1f2937; }
     
     .merged-table { width: 100%; border-collapse: collapse; text-align: center; margin-bottom: 0px !important; }
-    .merged-table tr { border: none !important; } 
+    .merged-table tr { border: none !important; }  /* ⭐ 합계 실선 지우기 복구 */
     .merged-table th { background-color: #f8f9fa !important; border: 1px solid #dee2e6 !important; padding: 4px; font-weight: bold; }
     .merged-table td { border: 1px solid #dee2e6 !important; padding: 3px; vertical-align: middle; font-weight: bold !important; }
     .sum-cell { font-weight: bold; color: #1E3A8A; }
@@ -174,8 +178,9 @@ st.markdown("""
     .print-row { display: flex; flex-direction: row; gap: 15px; width: 100%; }
     .print-col { flex: 1; min-width: 0; }
     
+    /* ⭐ PDF 인쇄 시 사이드바 숨기기 복구 */
     @media print {
-        .no-print, header, footer, [data-testid="stSidebar"], [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stHtml"], .icon-container { display: none !important; }
+        .no-print, header, footer, [data-testid="stSidebar"], [data-testid="stHeader"], [data-testid="stToolbar"], iframe, .icon-container { display: none !important; }
         html, body { height: auto !important; min-height: auto !important; padding-bottom: 0 !important; margin-bottom: 0 !important; padding-top: 0 !important; }
         .appview-container, .main, .block-container, .element-container { padding-top: 0 !important; margin-top: 0 !important; padding-bottom: 0 !important; margin-bottom: 0 !important; }
         div[data-testid="stVerticalBlock"] { gap: 0 !important; }
@@ -246,7 +251,6 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
     
     df = df.sort_values('시간').reset_index(drop=True)
     
-    # ⭐ 대리님이 짜두셨던 비행기 애니메이션 CSS 완벽 복구
     html_parts.append("""
     <style>
     .icon-container { position: absolute; right: 2px; width: 28px; height: 16px; border-bottom: 1.5px solid #333333; overflow: hidden; }
@@ -318,7 +322,6 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
     return "".join(html_parts)
 
 with st.sidebar:
-    # ⭐ 불필요한 '빠른 사이트 이동' 메뉴 완전 삭제 완료!
     st.markdown("<h3 style='margin: -10px 0px -15px 0px !important; padding: 0px !important; font-size: 19px; font-weight: bold; color: #1E3A8A;'>🔄 실시간 업데이트</h3>", unsafe_allow_html=True)
     
     if st.button("🔄 업데이트하기", use_container_width=True):
@@ -367,7 +370,7 @@ with st.sidebar:
         load_file_list.clear()
         get_spreadsheet.clear()
         get_gspread_client.clear()
-        st.session_state["last_valid_gate_df"] = pd.DataFrame() # 백업 초기화
+        st.session_state["last_valid_gate_df"] = pd.DataFrame()
         st.session_state["toast_msg"] = "모든 캐시를 비우고 시스템 연결을 초기화했습니다!"
         st.rerun()
 
@@ -385,9 +388,9 @@ with st.spinner("⏳ 실시간 게이트 및 승객 데이터를 불러오는 �
         
         df_g = future_api.result()
         
-        # ⭐ 하얀화면 철통방어 1, 2단계 작동
+        # ⭐ [추가] 하얀화면 철통방어 (셀프 힐링 & 5분전 메모리 백업 연계)
         if df_g.empty:
-            fetch_realtime_gate_info.clear()
+            fetch_realtime_gate_info.clear() 
             if not st.session_state.get("last_valid_gate_df", pd.DataFrame()).empty:
                 df_g = st.session_state["last_valid_gate_df"].copy()
                 st.warning("⚠️ 현재 공항 서버 응답 지연으로 인해 마지막으로 수신된 정상 데이터를 표출 중입니다. (자동 복구 시도 중)")
@@ -477,55 +480,64 @@ else:
         total_p = final['p_val'].sum()
         def c_sum(c): return final[final['편명'].str.startswith(c, na=False)]['p_val'].sum()
         ke_s, oz_s, dl_s = c_sum('KE'), c_sum('OZ'), c_sum('DL')
-
-        # ⭐ 먹통 새로고침 버튼 쿨하게 삭제, 에러나던 PDF/사진 기능은 메인 DOM에서 완벽 부활!
-        st.html(
+        
+        # ⭐ 먹통 '새로고침' 버튼만 삭제하고 나머지 대리님 원본 로직 100% 복구!
+        st.components.v1.html(
             """
             <style>
-            .custom-btn { background-color: white; border: 1px solid #dcdcdc; color: #31333f; padding: 6px 15px; font-size: 14px; border-radius: 6px; cursor: pointer; font-family: sans-serif; box-shadow: 0px 1px 3px rgba(0,0,0,0.1); margin-right: 10px; }
+            body { margin: 0; padding: 0; overflow: hidden; display: flex; gap: 10px; }
+            .custom-btn { background-color: white; border: 1px solid #dcdcdc; color: #31333f; padding: 6px 15px; font-size: 14px; border-radius: 6px; cursor: pointer; font-family: sans-serif; box-shadow: 0px 1px 3px rgba(0,0,0,0.1); }
             .custom-btn:hover { border-color: #ff4b4b; color: #ff4b4b; }
-            .btn-container { display: flex; align-items: center; justify-content: flex-start; margin-bottom: 10px; }
             </style>
-            <div class="no-print btn-container">
-                <button class="custom-btn" onclick="window.print()">📄 PDF 저장</button>
-                <button class="custom-btn" id="pic-btn" onclick="takePic()">📸 전체 사진으로 저장</button>
-            </div>
+            <button class="custom-btn" onclick="window.parent.print()">📄 PDF 저장</button>
+            <button class="custom-btn" onclick="takePic()" id="pic-btn">📸 전체 사진으로 저장</button>
             <script>
+            var parentWin = window.parent; var parentDoc = parentWin.document;
             function takePic() {
-                var btn = document.getElementById('pic-btn');
-                btn.innerText = "⏳ 캡처 중... 잠시만요!";
-                if (!window.html2canvas) {
-                    var script = document.createElement('script');
-                    script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-                    script.onload = function() { doCap(btn); };
-                    document.head.appendChild(script);
-                } else { doCap(btn); }
+                var btn = document.getElementById('pic-btn'); btn.innerText = "⏳ 캡처 중... 잠시만요!";
+                try {
+                    if (!parentWin.html2canvas) {
+                        var script = parentDoc.createElement('script'); script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+                        script.onload = function() { doCap(parentWin, parentDoc, btn); }; script.onerror = function() { alert("⚠ 오류"); btn.innerText = "📸 캡처"; };
+                        parentDoc.head.appendChild(script);
+                    } else { doCap(parentWin, parentDoc, btn); }
+                } catch(e) { btn.innerText = "📸 캡처"; }
             }
-            function doCap(btn) {
-                var target = document.querySelector('.main') || document.body;
-                var hides = document.querySelectorAll('[data-testid="stSidebar"], header, .no-print, .icon-container');
-                
-                // 캡처 시 화면 잘림을 방지하기 위해 잠시 스타일 조정
-                var oldOverflow = target.style.overflow;
-                var oldHeight = target.style.height;
-                target.style.overflow = 'visible';
-                target.style.height = 'auto';
-                
-                hides.forEach(function(e){ e.dataset.old = e.style.display || ''; e.style.display = 'none'; });
-                
+            function doCap(win, doc, btn) {
+                var target = doc.querySelector('.block-container') || doc.querySelector('.main');
+                var hides = doc.querySelectorAll('[data-testid="stSidebar"], header, iframe, .icon-container');
+                var appView = doc.querySelector('.appview-container') || doc.querySelector('[data-testid="stAppViewContainer"]');
+                var mainView = doc.querySelector('.main');
+                var oldAppOverflow = appView ? appView.style.overflow : ''; var oldAppHeight = appView ? appView.style.height : '';
+                var oldMainOverflow = mainView ? mainView.style.overflow : ''; var oldMainHeight = mainView ? mainView.style.height : '';
+                if(appView) { appView.style.overflow = 'visible'; appView.style.height = 'auto'; }
+                if(mainView) { mainView.style.overflow = 'visible'; mainView.style.height = 'auto'; }
+                target.style.paddingTop = '10px'; target.style.marginTop = '0px'; target.style.width = '1100px'; target.style.maxWidth = '1100px';
+                hides.forEach(function(e){ e.dataset.old = e.style.display; e.style.display = 'none'; });
                 setTimeout(function() {
-                    window.html2canvas(target, { scale: 3, useCORS: true, backgroundColor: '#ffffff' }).then(function(canvas) {
-                        var link = document.createElement('a'); link.download = '잡지.png'; link.href = canvas.toDataURL('image/png'); link.click();
+                    win.html2canvas(target, { scale: 6, useCORS: true, backgroundColor: '#ffffff' }).then(function(canvas) {
+                        var link = doc.createElement('a'); link.download = '잡지.png'; link.href = canvas.toDataURL('image/png'); link.click();
                     }).finally(function() {
-                        target.style.overflow = oldOverflow;
-                        target.style.height = oldHeight;
-                        hides.forEach(function(e){ e.style.display = e.dataset.old; });
-                        btn.innerText = "📸 전체 사진으로 저장";
+                        if(appView) { appView.style.overflow = oldAppOverflow; appView.style.height = oldAppHeight; }
+                        if(mainView) { mainView.style.overflow = oldMainOverflow; mainView.style.height = oldMainHeight; }
+                        target.style.paddingTop = ''; target.style.marginTop = ''; target.style.width = ''; target.style.maxWidth = '';
+                        hides.forEach(function(e){ e.style.display = e.dataset.old || ''; }); btn.innerText = "📸 전체 사진으로 저장";
                     });
                 }, 800);
             }
+            function doScrollLogic() {
+                var scrollContainer = parentDoc.querySelector('.main') || parentWin;
+                var savedScroll = parentWin.sessionStorage.getItem('stScrollPos');
+                if (savedScroll && scrollContainer.scrollTo) { scrollContainer.scrollTo(0, parseInt(savedScroll)); }
+            }
+            setTimeout(doScrollLogic, 100); setTimeout(doScrollLogic, 300); setTimeout(doScrollLogic, 600); setTimeout(doScrollLogic, 1000);
+            setInterval(function() {
+                var scrollContainer = parentDoc.querySelector('.main') || parentWin;
+                var scrollTop = scrollContainer.scrollTop || parentWin.scrollY || 0;
+                if(scrollTop > 0) { parentWin.sessionStorage.setItem('stScrollPos', scrollTop); }
+            }, 500);
             </script>
-            """
+            """, height=45
         )
         
         st.markdown(f"""
@@ -547,5 +559,4 @@ else:
         w_html = generate_table_html(final[final['구역'] == '서편'], "⬅ 서편", west_p, "#DC2626", opt_airline, opt_peak, opt_incoming, base_font_size, target_date, now_kst_time)
         e_html = generate_table_html(final[final['구역'] == '동편'], "➡ 동편", east_p, "#2563EB", opt_airline, opt_peak, opt_incoming, base_font_size, target_date, now_kst_time)
         
-        # ⭐ 대리님 순정 st.markdown 출력 방식으로 원상 복구! (CSS 에러 완벽 해결)
         st.markdown(f'<div class="print-row">{e_html}{w_html}</div>', unsafe_allow_html=True)
