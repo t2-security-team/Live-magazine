@@ -24,6 +24,10 @@ tomorrow_date_str = (now_kst_time + timedelta(days=1)).strftime("%Y-%m-%d")
 if "last_updated" not in st.session_state:
     st.session_state["last_updated"] = now_kst_time.strftime("%Y-%m-%d %H:%M:%S")
 
+# ⭐ 하얀화면 1차 방어: 마지막 정상 게이트 데이터를 기억해둘 공간
+if "last_valid_gate_df" not in st.session_state:
+    st.session_state["last_valid_gate_df"] = pd.DataFrame()
+
 # 새벽 1시 자동 캐시 초기화 엔진 (구글 시트 삭제 아님! 메모리만 비워줌)
 if "last_auto_clear" not in st.session_state:
     st.session_state["last_auto_clear"] = None
@@ -35,16 +39,18 @@ if now_kst_time.hour == 1 and st.session_state["last_auto_clear"] != today_date_
         load_file_list.clear()
         load_pax_data.clear()
         fetch_realtime_gate_info.clear()
+        st.session_state["last_valid_gate_df"] = pd.DataFrame() # 백업도 매일 리셋
     except Exception:
         pass
     st.session_state["last_auto_clear"] = today_date_str
 
 SHEET_NAME = "보안검색_데이터_공유"
 
-st.components.v1.html(
+# ⭐ 로그 경고 차단: st.components.v1.html -> st.html 로 교체
+st.html(
     """
     <script>
-    var parentWin = window.parent;
+    var parentWin = window.parent || window;
     var parentDoc = parentWin.document;
 
     function force5MinRefresh() {
@@ -60,8 +66,7 @@ st.components.v1.html(
     }
     setInterval(force5MinRefresh, 300000);
     </script>
-    """,
-    height=0, width=0
+    """
 )
 
 @st.cache_resource(show_spinner=False)
@@ -149,7 +154,7 @@ if "toast_msg" in st.session_state:
     st.toast(st.session_state["toast_msg"], icon="✅")
     del st.session_state["toast_msg"]
 
-# ⭐ 삭제되었던 디자인/PDF 코드 완벽 복구
+# 삭제되었던 디자인/PDF 코드 완벽 복구
 st.markdown("""
     <style>
     .main .block-container { padding-top: 0px !important; padding-bottom: 0px !important; margin-top: -15px !important; }
@@ -162,7 +167,7 @@ st.markdown("""
     .file-item { font-size:13px; margin: 0 0 6px 10px !important; line-height: 1.5 !important; color: #1f2937; }
     
     .merged-table { width: 100%; border-collapse: collapse; text-align: center; margin-bottom: 0px !important; }
-    .merged-table tr { border: none !important; }  /* ⭐ 합계 실선 지우기 복구 */
+    .merged-table tr { border: none !important; }  /* 합계 실선 지우기 복구 */
     .merged-table th { background-color: #f8f9fa !important; border: 1px solid #dee2e6 !important; padding: 4px; font-weight: bold; }
     .merged-table td { border: 1px solid #dee2e6 !important; padding: 3px; vertical-align: middle; font-weight: bold !important; }
     .sum-cell { font-weight: bold; color: #1E3A8A; }
@@ -173,7 +178,7 @@ st.markdown("""
     .print-row { display: flex; flex-direction: row; gap: 15px; width: 100%; }
     .print-col { flex: 1; min-width: 0; }
     
-    /* ⭐ PDF 인쇄 시 사이드바 숨기기 복구 */
+    /* PDF 인쇄 시 사이드바 숨기기 복구 */
     @media print {
         .no-print, header, footer, [data-testid="stSidebar"], [data-testid="stHeader"], [data-testid="stToolbar"], iframe, .icon-container { display: none !important; }
         html, body { height: auto !important; min-height: auto !important; padding-bottom: 0 !important; margin-bottom: 0 !important; padding-top: 0 !important; }
@@ -365,6 +370,7 @@ with st.sidebar:
         load_file_list.clear()
         get_spreadsheet.clear()
         get_gspread_client.clear()
+        st.session_state["last_valid_gate_df"] = pd.DataFrame() # 백업 초기화
         st.session_state["toast_msg"] = "모든 캐시를 비우고 시스템 연결을 초기화했습니다!"
         st.rerun()
 
@@ -381,6 +387,20 @@ with st.spinner("⏳ 실시간 게이트 및 승객 데이터를 불러오는 �
         future_files = executor.submit(thread_wrapper, load_file_list)
         
         df_g = future_api.result()
+        
+        # ⭐ 하얀화면 철통방어 (셀프 힐링 & 메모리 백업 연계)
+        if df_g.empty:
+            # 2차 방어(셀프 힐링): 공항이 에러를 주면 기억하지 말고 즉시 삭제해서 다음번 재시도 유도
+            fetch_realtime_gate_info.clear()
+            
+            # 1차 방어(백업 표출): 저장해둔 마지막 정상 데이터가 있다면 그대로 불러옴
+            if not st.session_state["last_valid_gate_df"].empty:
+                df_g = st.session_state["last_valid_gate_df"].copy()
+                st.warning("⚠️ 공항 서버 응답 지연으로 인해 마지막으로 수신된 데이터를 표출 중입니다. (자동 복구 시도 중)")
+        else:
+            # 정상 데이터일 경우 다음 비상사태를 대비해 백업본 업데이트
+            st.session_state["last_valid_gate_df"] = df_g.copy()
+
         full_pax_df = future_pax.result()
         full_files_df = future_files.result()
 
@@ -465,18 +485,23 @@ else:
         def c_sum(c): return final[final['편명'].str.startswith(c, na=False)]['p_val'].sum()
         ke_s, oz_s, dl_s = c_sum('KE'), c_sum('OZ'), c_sum('DL')
         
-        st.components.v1.html(
+        # ⭐ 로그 경고 차단: st.html 문법으로 PDF 및 사진 저장 버튼 교체
+        st.html(
             """
             <style>
-            body { margin: 0; padding: 0; overflow: hidden; display: flex; gap: 10px; }
-            .custom-btn { background-color: white; border: 1px solid #dcdcdc; color: #31333f; padding: 6px 15px; font-size: 14px; border-radius: 6px; cursor: pointer; font-family: sans-serif; box-shadow: 0px 1px 3px rgba(0,0,0,0.1); }
+            .custom-btn { background-color: white; border: 1px solid #dcdcdc; color: #31333f; padding: 6px 15px; font-size: 14px; border-radius: 6px; cursor: pointer; font-family: sans-serif; box-shadow: 0px 1px 3px rgba(0,0,0,0.1); margin-right: 10px; }
             .custom-btn:hover { border-color: #ff4b4b; color: #ff4b4b; }
+            .btn-container { display: flex; align-items: center; justify-content: flex-start; margin-bottom: 10px; }
             </style>
-            <button class="custom-btn" onclick="window.parent.print()">📄 PDF 저장</button>
-            <button class="custom-btn" onclick="takePic()" id="pic-btn">📸 전체 사진으로 저장</button>
-            <button class="custom-btn" onclick="doManualRefresh()">🔄 새로고침</button>
+            <div class="btn-container">
+                <button class="custom-btn" onclick="window.parent.print()">📄 PDF 저장</button>
+                <button class="custom-btn" onclick="takePic()" id="pic-btn">📸 전체 사진으로 저장</button>
+                <button class="custom-btn" onclick="doManualRefresh()">🔄 새로고침</button>
+            </div>
             <script>
-            var parentWin = window.parent; var parentDoc = parentWin.document;
+            var parentWin = window.parent || window;
+            var parentDoc = parentWin.document;
+
             function doManualRefresh() {
                 var btns = parentDoc.querySelectorAll('button'); var clicked = false;
                 btns.forEach(function(b) { if (b.innerText.includes("업데이트하기") || b.innerText.includes("실시간 업데이트")) { b.click(); clicked = true; } });
@@ -526,7 +551,7 @@ else:
                 if(scrollTop > 0) { parentWin.sessionStorage.setItem('stScrollPos', scrollTop); }
             }, 500);
             </script>
-            """, height=45
+            """
         )
         
         st.markdown(f"""
