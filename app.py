@@ -117,13 +117,14 @@ def fetch_realtime_gate_info(search_date_str):
         headers = {"User-Agent": "Mozilla/5.0"}
         
         response = None
-        for attempt in range(3):
+        # ⭐ 대기 시간 대폭 단축! 30초 대기 -> 5초 대기로 줄여서 답답함 해소! (재시도도 2번으로 축소)
+        for attempt in range(2):
             try:
-                response = requests.get(req_url, headers=headers, timeout=(12, 30))
+                response = requests.get(req_url, headers=headers, timeout=(3, 5))
                 if response.status_code == 200: break
             except:
-                if attempt == 2: return pd.DataFrame()
-                time.sleep(2)
+                if attempt == 1: return pd.DataFrame()
+                time.sleep(1)
                 
         if not response or response.status_code != 200: return pd.DataFrame()
 
@@ -154,7 +155,6 @@ if "toast_msg" in st.session_state:
     st.toast(st.session_state["toast_msg"], icon="✅")
     del st.session_state["toast_msg"]
 
-# ⭐ 대리님 순정 디자인/PDF 코드 100% 유지!
 st.markdown("""
     <style>
     .main .block-container { padding-top: 0px !important; padding-bottom: 0px !important; margin-top: -15px !important; }
@@ -167,7 +167,7 @@ st.markdown("""
     .file-item { font-size:13px; margin: 0 0 6px 10px !important; line-height: 1.5 !important; color: #1f2937; }
     
     .merged-table { width: 100%; border-collapse: collapse; text-align: center; margin-bottom: 0px !important; }
-    .merged-table tr { border: none !important; }  /* ⭐ 합계 실선 지우기 복구 */
+    .merged-table tr { border: none !important; } 
     .merged-table th { background-color: #f8f9fa !important; border: 1px solid #dee2e6 !important; padding: 4px; font-weight: bold; }
     .merged-table td { border: 1px solid #dee2e6 !important; padding: 3px; vertical-align: middle; font-weight: bold !important; }
     .sum-cell { font-weight: bold; color: #1E3A8A; }
@@ -178,7 +178,6 @@ st.markdown("""
     .print-row { display: flex; flex-direction: row; gap: 15px; width: 100%; }
     .print-col { flex: 1; min-width: 0; }
     
-    /* ⭐ PDF 인쇄 시 사이드바 숨기기 복구 */
     @media print {
         .no-print, header, footer, [data-testid="stSidebar"], [data-testid="stHeader"], [data-testid="stToolbar"], iframe, .icon-container { display: none !important; }
         html, body { height: auto !important; min-height: auto !important; padding-bottom: 0 !important; margin-bottom: 0 !important; padding-top: 0 !important; }
@@ -388,7 +387,7 @@ with st.spinner("⏳ 실시간 게이트 및 승객 데이터를 불러오는 �
         
         df_g = future_api.result()
         
-        # ⭐ [추가] 하얀화면 철통방어 (셀프 힐링 & 5분전 메모리 백업 연계)
+        # ⭐ 하얀화면 철통방어 (셀프 힐링 & 5분전 메모리 백업 연계)
         if df_g.empty:
             fetch_realtime_gate_info.clear() 
             if not st.session_state.get("last_valid_gate_df", pd.DataFrame()).empty:
@@ -481,7 +480,7 @@ else:
         def c_sum(c): return final[final['편명'].str.startswith(c, na=False)]['p_val'].sum()
         ke_s, oz_s, dl_s = c_sum('KE'), c_sum('OZ'), c_sum('DL')
         
-        # ⭐ 먹통 '새로고침' 버튼만 삭제하고 나머지 대리님 원본 로직 100% 복구!
+        # ⭐ 대리님 원본 버튼 로직 100% 복구 + 먹통 버튼 1개만 제거
         st.components.v1.html(
             """
             <style>
