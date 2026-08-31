@@ -9,10 +9,6 @@ import io
 import requests
 import time
 from datetime import datetime, timedelta, timezone
-import warnings
-
-# Streamlit 경고 메시지 방어막
-warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 st.set_page_config(page_title="T2 보안검색 환승부 잡지", layout="wide", initial_sidebar_state="collapsed")
 
@@ -47,8 +43,7 @@ if now_kst_time.hour == 1 and st.session_state["last_auto_clear"] != today_date_
 
 SHEET_NAME = "보안검색_데이터_공유"
 
-# ⭐ 시한폭탄 에러 제거: st.components.v1.html -> 최신 st.html 문법으로 교체 완료
-st.html(
+st.components.v1.html(
     """
     <script>
     var parentWin = window.parent;
@@ -67,7 +62,8 @@ st.html(
     }
     setInterval(force5MinRefresh, 300000);
     </script>
-    """
+    """,
+    height=0, width=0
 )
 
 @st.cache_resource(show_spinner=False)
@@ -452,9 +448,8 @@ else:
         final['hour'] = final['시간'].astype(str).str.extract(r'^(\d{1,2})').fillna(0).astype(int)
         final = final[(final['hour'] >= time_range[0]) & (final['hour'] <= time_range[1])]
         
-        # ⭐ [핵심 추가] 스마트 슬라이더 (40분 자동 삭제 연동)
-        # 슬라이더가 기본 위치(현재시간-1)에 있을 때만 40분 경과 비행기를 자동 삭제합니다.
-        # 사용자가 슬라이더를 왼쪽(과거)으로 당기면 청소 기능이 즉시 정지되고 전체 데이터가 나타납니다!
+        # ⭐ [스마트 슬라이더 연동 40분 삭제 로직] 
+        # 슬라이더 시작값을 사용자가 '과거'로 당기면(time_range[0] < default_start_hour) 삭제 기능 일시 정지!
         if time_range[0] >= default_start_hour:
             def calc_diff_mins(t_str):
                 try:
@@ -484,10 +479,8 @@ else:
         def c_sum(c): return final[final['편명'].str.startswith(c, na=False)]['p_val'].sum()
         ke_s, oz_s, dl_s = c_sum('KE'), c_sum('OZ'), c_sum('DL')
         
-        # ⭐ 시한폭탄 에러 제거: st.components.v1.html -> 최신 st.html 문법으로 교체 완료
-        st.html(
+        st.components.v1.html(
             """
-            <div style="height: 45px;">
             <style>
             body { margin: 0; padding: 0; overflow: hidden; display: flex; gap: 10px; }
             .custom-btn { background-color: white; border: 1px solid #dcdcdc; color: #31333f; padding: 6px 15px; font-size: 14px; border-radius: 6px; cursor: pointer; font-family: sans-serif; box-shadow: 0px 1px 3px rgba(0,0,0,0.1); }
@@ -541,8 +534,7 @@ else:
                 if(scrollTop > 0) { parentWin.sessionStorage.setItem('stScrollPos', scrollTop); }
             }, 500);
             </script>
-            </div>
-            """
+            """, height=45
         )
         
         st.markdown(f"""
