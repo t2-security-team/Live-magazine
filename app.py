@@ -114,7 +114,6 @@ def fetch_realtime_gate_info(search_date_str):
         headers = {"User-Agent": "Mozilla/5.0"}
         
         response = None
-        # ⭐ 대기 시간 대폭 단축! 30초 대기 -> 5초 대기로 줄여서 답답함 해소! (재시도도 2번으로 축소)
         for attempt in range(2):
             try:
                 response = requests.get(req_url, headers=headers, timeout=(3, 5))
@@ -177,12 +176,13 @@ st.markdown("""
     
     @media print {
         .no-print, header, footer, [data-testid="stSidebar"], [data-testid="stHeader"], [data-testid="stToolbar"], iframe, .icon-container { display: none !important; }
-        html, body { height: auto !important; min-height: auto !important; padding-bottom: 0 !important; margin-bottom: 0 !important; padding-top: 0 !important; }
-        .appview-container, .main, .block-container, .element-container { padding-top: 0 !important; margin-top: 0 !important; padding-bottom: 0 !important; margin-bottom: 0 !important; }
+        html, body { height: auto !important; min-height: auto !important; width: 1024px !important; min-width: 1024px !important; padding: 0 !important; margin: 0 !important; }
+        .appview-container, .main, .block-container, .element-container { padding: 0 !important; margin: 0 !important; width: 1024px !important; max-width: 1024px !important; }
         div[data-testid="stVerticalBlock"] { gap: 0 !important; }
         body { zoom: 75%; }
-        .print-row { display: flex !important; flex-direction: row !important; }
-        table { page-break-inside: auto; margin-bottom: 0px !important; }
+        .print-row { display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important; width: 100% !important; justify-content: space-between !important; }
+        .print-col { flex: 1 1 48% !important; width: 48% !important; }
+        table { page-break-inside: auto; margin-bottom: 0px !important; width: 100% !important; }
         tr { page-break-inside: avoid; page-break-after: auto; }
         thead { display: table-header-group; }
         @page { size: A4; margin-top: 12mm !important; margin-bottom: 12mm !important; margin-left: 10mm !important; margin-right: 10mm !important; }
@@ -370,12 +370,9 @@ with st.sidebar:
         st.session_state["toast_msg"] = "모든 캐시를 비우고 시스템 연결을 초기화했습니다!"
         st.rerun()
 
-# ⭐ 동시 실행(멀티쓰레딩) 제거 및 안전한 순차 실행(1명씩)으로 교체 완벽 적용
 with st.spinner("⏳ 실시간 게이트 및 승객 데이터를 불러오는 중입니다..."):
-    # 1. 공항 API 먼저 안전하게 가져오기
     df_g = fetch_realtime_gate_info(api_target_date_str)
     
-    # ⭐ 하얀화면 철통방어 (셀프 힐링 & 5분전 메모리 백업 연계)
     if df_g.empty:
         fetch_realtime_gate_info.clear() 
         if not st.session_state.get("last_valid_gate_df", pd.DataFrame()).empty:
@@ -384,9 +381,7 @@ with st.spinner("⏳ 실시간 게이트 및 승객 데이터를 불러오는 �
     else:
         st.session_state["last_valid_gate_df"] = df_g.copy()
 
-    # 2. 승객 데이터 가져오기
     full_pax_df = load_pax_data()
-    # 3. 파일 리스트 가져오기
     full_files_df = load_file_list()
 
 if not full_pax_df.empty: saved_pax_df = full_pax_df[full_pax_df['조회일자'] == target_date_str]
@@ -411,18 +406,16 @@ st.markdown(f"""
 
 p_all = [saved_pax_df] if not saved_pax_df.empty else []
 
+# ⭐ 이용안내 텍스트 싹 지우고, 원인 분석 경고창(공항 지연 OR 엑셀 누락)만 표출!
 if not p_all or df_g.empty:
     st.markdown("<h2 style='text-align: center;'>✈ T2 보안검색 환승부 잡지 (실시간 연동) ✈</h2>", unsafe_allow_html=True)
-    with st.expander("💡 홈페이지 이용 방법 (필독)", expanded=True):
-        st.markdown("""
-        ### 🌐 데이터 공유 방식 안내
-        * **자동 공유:** 서버에 연결된 데이터를 자동으로 불러옵니다.
-        * **실시간 게이트 연동:** 게이트 정보는 실시간으로 도착편을 조회합니다.
-        * **5분 자동 갱신:** 별도의 조작 없이도 5분마다 최신 데이터를 자동으로 새로고침합니다.
-        * **업데이트:** 게이트 정보가 변경되었을 수 있으니 언제든 사이드바의 **[🔄 업데이트하기]** 버튼을 눌러주세요.
-        """)
+    st.markdown("<br>", unsafe_allow_html=True)
+    
     if df_g.empty:
-        st.info(f"🔄 {display_date_str}의 실시간 공항 API에서 게이트 데이터를 불러오는 중이거나 데이터가 없습니다.")
+        st.error("🚨 **[공항 서버 응답 지연]** 실시간 게이트 정보를 받아오지 못했습니다. 공항 데이터 서버 점검 중이거나 응답이 지연되고 있으니 잠시 후 좌측의 `[🔄 업데이트하기]` 버튼을 눌러주세요.")
+        
+    if not p_all:
+        st.warning("📂 **[승객 데이터 누락]** 아직 구글 시트에 공유된 승객수 엑셀 파일이 없습니다. [데이터 업로드] 사이트에서 해당 날짜의 엑셀 파일을 먼저 저장해 주세요.")
 else:
     df_p = pd.concat(p_all)
     if '편명' not in df_p.columns:
@@ -470,7 +463,6 @@ else:
         def c_sum(c): return final[final['편명'].str.startswith(c, na=False)]['p_val'].sum()
         ke_s, oz_s, dl_s = c_sum('KE'), c_sum('OZ'), c_sum('DL')
         
-        # ⭐ 대리님 원본 버튼 로직 100% 복구 + 먹통 버튼 1개만 제거
         st.components.v1.html(
             """
             <style>
