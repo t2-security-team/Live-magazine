@@ -9,9 +9,6 @@ import io
 import requests
 import time
 from datetime import datetime, timedelta, timezone
-import concurrent.futures
-import threading
-from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 
 st.set_page_config(page_title="T2 보안검색 환승부 잡지", layout="wide", initial_sidebar_state="collapsed")
 
@@ -373,31 +370,24 @@ with st.sidebar:
         st.session_state["toast_msg"] = "모든 캐시를 비우고 시스템 연결을 초기화했습니다!"
         st.rerun()
 
-ctx = get_script_run_ctx()
-
-def thread_wrapper(func, *args):
-    add_script_run_ctx(threading.current_thread(), ctx)
-    return func(*args)
-
+# ⭐ 동시 실행(멀티쓰레딩) 제거 및 안전한 순차 실행(1명씩)으로 교체 완벽 적용
 with st.spinner("⏳ 실시간 게이트 및 승객 데이터를 불러오는 중입니다..."):
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-        future_api = executor.submit(thread_wrapper, fetch_realtime_gate_info, api_target_date_str)
-        future_pax = executor.submit(thread_wrapper, load_pax_data)
-        future_files = executor.submit(thread_wrapper, load_file_list)
-        
-        df_g = future_api.result()
-        
-        # ⭐ 하얀화면 철통방어 (셀프 힐링 & 5분전 메모리 백업 연계)
-        if df_g.empty:
-            fetch_realtime_gate_info.clear() 
-            if not st.session_state.get("last_valid_gate_df", pd.DataFrame()).empty:
-                df_g = st.session_state["last_valid_gate_df"].copy()
-                st.warning("⚠️ 현재 공항 서버 응답 지연으로 인해 마지막으로 수신된 정상 데이터를 표출 중입니다. (자동 복구 시도 중)")
-        else:
-            st.session_state["last_valid_gate_df"] = df_g.copy()
+    # 1. 공항 API 먼저 안전하게 가져오기
+    df_g = fetch_realtime_gate_info(api_target_date_str)
+    
+    # ⭐ 하얀화면 철통방어 (셀프 힐링 & 5분전 메모리 백업 연계)
+    if df_g.empty:
+        fetch_realtime_gate_info.clear() 
+        if not st.session_state.get("last_valid_gate_df", pd.DataFrame()).empty:
+            df_g = st.session_state["last_valid_gate_df"].copy()
+            st.warning("⚠️ 현재 공항 서버 응답 지연으로 인해 마지막으로 수신된 정상 데이터를 표출 중입니다. (자동 복구 시도 중)")
+    else:
+        st.session_state["last_valid_gate_df"] = df_g.copy()
 
-        full_pax_df = future_pax.result()
-        full_files_df = future_files.result()
+    # 2. 승객 데이터 가져오기
+    full_pax_df = load_pax_data()
+    # 3. 파일 리스트 가져오기
+    full_files_df = load_file_list()
 
 if not full_pax_df.empty: saved_pax_df = full_pax_df[full_pax_df['조회일자'] == target_date_str]
 else: saved_pax_df = pd.DataFrame()
