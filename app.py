@@ -448,20 +448,21 @@ else:
         final['hour'] = final['시간'].astype(str).str.extract(r'^(\d{1,2})').fillna(0).astype(int)
         final = final[(final['hour'] >= time_range[0]) & (final['hour'] <= time_range[1])]
         
-        # ⭐ [핵심 추가] 40분 경과한 비행기 모조리 삭제 로직 탑재!
-        def calc_diff_mins(t_str):
-            try:
-                time_parts = str(t_str).split(':')
-                if len(time_parts) == 2:
-                    flight_dt = target_date.replace(hour=int(time_parts[0]), minute=int(time_parts[1]), second=0, microsecond=0)
-                    return (now_kst_time - flight_dt).total_seconds() / 60.0
-            except:
-                pass
-            return 0.0
+        # ⭐ [스마트 슬라이더 연동 40분 삭제 로직] 
+        # 슬라이더 시작값을 사용자가 '과거'로 당기면(time_range[0] < default_start_hour) 삭제 기능 일시 정지!
+        if time_range[0] >= default_start_hour:
+            def calc_diff_mins(t_str):
+                try:
+                    time_parts = str(t_str).split(':')
+                    if len(time_parts) == 2:
+                        flight_dt = target_date.replace(hour=int(time_parts[0]), minute=int(time_parts[1]), second=0, microsecond=0)
+                        return (now_kst_time - flight_dt).total_seconds() / 60.0
+                except:
+                    pass
+                return 0.0
 
-        final['diff_mins'] = final['시간'].apply(calc_diff_mins)
-        # 40분 미만인(아직 안 들어왔거나, 들어온 지 39분 이하) 비행기들만 살려둡니다.
-        final = final[final['diff_mins'] < 40]
+            final['diff_mins'] = final['시간'].apply(calc_diff_mins)
+            final = final[final['diff_mins'] < 40]
         
     if not final.empty:
         if '출구' not in final.columns: final['출구'] = ""
