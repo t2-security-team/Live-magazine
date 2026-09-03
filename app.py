@@ -100,21 +100,6 @@ def load_pax_data():
         if len(data) > 1:
             df = pd.DataFrame(data[1:], columns=data[0])
             if '조회일자' not in df.columns: df['조회일자'] = today_date_str
-            
-            # ⭐ [만능 엑셀 호환 매핑 엔진] 어떤 형식의 컬럼이 들어와도 표준 형태로 자동 변환!
-            rename_map = {}
-            for col in df.columns:
-                c_upper = str(col).strip().upper()
-                if c_upper in ['FLT', '편명', 'FLIGHT']: rename_map[col] = '편명'
-                elif c_upper in ['ROUTE', '출발지', 'DEST']: rename_map[col] = '출발지'
-                elif c_upper in ['ICN/O BKG', 'BKG', '승객수', 'PAX', 'T/S']: 
-                    # 승객수 관련 데이터 우선순위 매핑 (이미 승객수가 지정되지 않은 경우에만)
-                    if '승객수' not in df.columns and '승객수' not in rename_map.values():
-                        rename_map[col] = '승객수'
-            
-            if rename_map:
-                df = df.rename(columns=rename_map)
-                
             return df
     except: pass
     return pd.DataFrame()
@@ -464,6 +449,7 @@ else:
         final = final[(final['hour'] >= time_range[0]) & (final['hour'] <= time_range[1])]
         
         # ⭐ [스마트 슬라이더 연동 40분 삭제 로직] 
+        # 슬라이더 시작값을 사용자가 '과거'로 당기면(time_range[0] < default_start_hour) 삭제 기능 일시 정지!
         if time_range[0] >= default_start_hour:
             def calc_diff_mins(t_str):
                 try:
