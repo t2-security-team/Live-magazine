@@ -100,6 +100,17 @@ def load_pax_data():
         if len(data) > 1:
             df = pd.DataFrame(data[1:], columns=data[0])
             if '조회일자' not in df.columns: df['조회일자'] = today_date_str
+            
+            # ⭐ [방법 B 핵심 매핑] 구글 시트에 올라온 데이터가 영문 컬럼('FLT', 'Route', 'ICN/O BKG') 형태라면 자동 번역!
+            rename_map = {}
+            if 'FLT' in df.columns and '편명' not in df.columns: rename_map['FLT'] = '편명'
+            if 'Route' in df.columns and '출발지' not in df.columns: rename_map['Route'] = '출발지'
+            if 'ICN/O BKG' in df.columns and '승객수' not in df.columns: rename_map['ICN/O BKG'] = '승객수'
+            elif 'BKG' in df.columns and '승객수' not in df.columns and 'ICN/O BKG' not in df.columns: rename_map['BKG'] = '승객수'
+            
+            if rename_map:
+                df = df.rename(columns=rename_map)
+                
             return df
     except: pass
     return pd.DataFrame()
@@ -449,7 +460,6 @@ else:
         final = final[(final['hour'] >= time_range[0]) & (final['hour'] <= time_range[1])]
         
         # ⭐ [스마트 슬라이더 연동 40분 삭제 로직] 
-        # 슬라이더 시작값을 사용자가 '과거'로 당기면(time_range[0] < default_start_hour) 삭제 기능 일시 정지!
         if time_range[0] >= default_start_hour:
             def calc_diff_mins(t_str):
                 try:
