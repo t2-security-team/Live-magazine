@@ -101,12 +101,16 @@ def load_pax_data():
             df = pd.DataFrame(data[1:], columns=data[0])
             if '조회일자' not in df.columns: df['조회일자'] = today_date_str
             
-            # ⭐ [방법 B 핵심 매핑] 구글 시트에 올라온 데이터가 영문 컬럼('FLT', 'Route', 'ICN/O BKG') 형태라면 자동 번역!
+            # ⭐ [만능 엑셀 호환 매핑 엔진] 어떤 형식의 컬럼이 들어와도 표준 형태로 자동 변환!
             rename_map = {}
-            if 'FLT' in df.columns and '편명' not in df.columns: rename_map['FLT'] = '편명'
-            if 'Route' in df.columns and '출발지' not in df.columns: rename_map['Route'] = '출발지'
-            if 'ICN/O BKG' in df.columns and '승객수' not in df.columns: rename_map['ICN/O BKG'] = '승객수'
-            elif 'BKG' in df.columns and '승객수' not in df.columns and 'ICN/O BKG' not in df.columns: rename_map['BKG'] = '승객수'
+            for col in df.columns:
+                c_upper = str(col).strip().upper()
+                if c_upper in ['FLT', '편명', 'FLIGHT']: rename_map[col] = '편명'
+                elif c_upper in ['ROUTE', '출발지', 'DEST']: rename_map[col] = '출발지'
+                elif c_upper in ['ICN/O BKG', 'BKG', '승객수', 'PAX', 'T/S']: 
+                    # 승객수 관련 데이터 우선순위 매핑 (이미 승객수가 지정되지 않은 경우에만)
+                    if '승객수' not in df.columns and '승객수' not in rename_map.values():
+                        rename_map[col] = '승객수'
             
             if rename_map:
                 df = df.rename(columns=rename_map)
