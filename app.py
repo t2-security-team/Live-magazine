@@ -101,7 +101,6 @@ def load_pax_data():
             df = pd.DataFrame(data[1:], columns=data[0])
             if '조회일자' not in df.columns: df['조회일자'] = today_date_str
             
-            # ⭐ [만능 엑셀 호환 매핑 엔진]
             rename_map = {}
             for col in df.columns:
                 c_upper = str(col).strip().upper()
@@ -135,8 +134,7 @@ def fetch_realtime_gate_info(search_date_str):
             response = None
             for attempt in range(2):
                 try:
-                    # ⭐ [핵심 변경] 극한의 인내심 모드: 연결 시도 10초 대기, 데이터 수신 30초까지 대기!
-                    response = requests.get(req_url, headers=headers, timeout=(10, 30))
+                    response = requests.get(req_url, headers=headers, timeout=(5, 15))
                     if response.status_code == 200 and "NORMAL SERVICE" in response.text:
                         break
                 except:
@@ -436,6 +434,18 @@ if not p_all or df_g.empty:
     if df_g.empty:
         st.error("🚨 **[공항 서버 응답 지연]** 실시간 게이트 정보를 받아오지 못했습니다. 공항 데이터 서버 점검 중이거나 응답이 지연되고 있으니 잠시 후 좌측의 `[🔄 업데이트하기]` 버튼을 눌러주세요.")
         
+        # 🚨 [새로 추가된 진단용 CCTV 영역] 
+        with st.expander("🛠️ (개발자용) 공항 서버 원인 진단 확인하기", expanded=True):
+            try:
+                st.info("현재 공항 API가 내뱉는 응답 내용을 캡처 중입니다...")
+                test_key = str(st.secrets["api"]["service_key"]).strip()
+                test_url = f"https://apis.data.go.kr/B551177/StatusOfPassengerFlightsDeOdp/getPassengerArrivalsDeOdp?serviceKey={test_key}&searchday={api_target_date_str}&from_time=0000&to_time=2400&type=xml&numOfRows=5&pageNo=1"
+                t_res = requests.get(test_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+                st.markdown(f"**HTTP 상태 코드:** `{t_res.status_code}`")
+                st.code(t_res.text[:800], language="xml")
+            except Exception as e:
+                st.error(f"통신 연결 자체가 실패했습니다: {e}")
+                
     if not p_all:
         st.warning("📂 **[승객 데이터 누락]** 아직 구글 시트에 공유된 승객수 엑셀 파일이 없습니다. [데이터 업로드] 사이트에서 해당 날짜의 엑셀 파일을 먼저 저장해 주세요.")
 else:
