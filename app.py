@@ -116,7 +116,8 @@ def fetch_realtime_gate_info(search_date_str):
         response = None
         for attempt in range(2):
             try:
-                response = requests.get(req_url, headers=headers, timeout=(3, 5))
+                # ⭐ 타임아웃 대폭 연장: 연결(5초) 대기, 읽기(15초) 대기
+                response = requests.get(req_url, headers=headers, timeout=(5, 15))
                 if response.status_code == 200: break
             except:
                 if attempt == 1: return pd.DataFrame()
