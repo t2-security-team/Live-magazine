@@ -100,17 +100,6 @@ def load_pax_data():
         if len(data) > 1:
             df = pd.DataFrame(data[1:], columns=data[0])
             if '조회일자' not in df.columns: df['조회일자'] = today_date_str
-            
-            rename_map = {}
-            for col in df.columns:
-                c_upper = str(col).strip().upper()
-                if c_upper in ['FLT', '편명', 'FLIGHT']: rename_map[col] = '편명'
-                elif c_upper in ['ROUTE', '출발지', 'DEST']: rename_map[col] = '출발지'
-                elif c_upper in ['ICN/O BKG', 'BKG', '승객수', 'PAX', 'T/S']: 
-                    if '승객수' not in df.columns and '승객수' not in rename_map.values():
-                        rename_map[col] = '승객수'
-            if rename_map:
-                df = df.rename(columns=rename_map)
             return df
     except: pass
     return pd.DataFrame()
@@ -120,55 +109,37 @@ def fetch_realtime_gate_info(search_date_str):
     import xml.etree.ElementTree as ET
     try:
         api_key = str(st.secrets["api"]["service_key"]).strip()
+        url = "https://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp"
+        req_url = f"{url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=xml&numOfRows=1800&pageNo=1"
+        headers = {"User-Agent": "Mozilla/5.0"}
         
-        # ⭐ 1순위: 항공기 운항 현황 (누락 방지를 위해 기존 API를 1순위로 원복)
-        req_url1 = f"https://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=xml&numOfRows=1800&pageNo=1"
-        
-        # ⭐ 2순위: 여객기 운항 현황 (서버 지연 시 페일오버용)
-        req_url2 = f"https://apis.data.go.kr/B551177/StatusOfPassengerFlightsDeOdp/getPassengerArrivalsDeOdp?serviceKey={api_key}&searchday={search_date_str}&from_time=0000&to_time=2400&type=xml&numOfRows=1800&pageNo=1"
-        
-        # 누락이 없는 1순위(req_url1)부터 시도
-        api_urls = [req_url1, req_url2]
-        
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Connection": "keep-alive"
-        }
-        
-        err_text = ""
-        
-        for req_url in api_urls:
-            response = None
-            for attempt in range(2):
-                try:
-                    response = requests.get(req_url, headers=headers, timeout=(10, 30))
-                    if response.status_code == 200 and "NORMAL SERVICE" in response.text:
-                        break
-                except:
-                    if attempt == 1: pass
-                    time.sleep(2)
-            
-            if response and response.status_code == 200 and "NORMAL SERVICE" in response.text:
-                err_text = response.text
-                break
+        response = None
+        for attempt in range(2):
+            try:
+                response = requests.get(req_url, headers=headers, timeout=(3, 5))
+                if response.status_code == 200: break
+            except:
+                if attempt == 1: return pd.DataFrame()
+                time.sleep(1)
                 
-        if not err_text: 
-            return pd.DataFrame()
+        if not response or response.status_code != 200: return pd.DataFrame()
+
+        err_text = response.text
+        if "NORMAL SERVICE" not in err_text: return pd.DataFrame()
 
         root = ET.fromstring(err_text)
         items = []
         for item in root.findall(".//item"):
             flight_id = (item.findtext("flightId") or item.findtext("fid") or "").replace('DAL', 'DL').replace('KAL', 'KE').replace('AAR', 'OZ')
-            time_str = str(item.findtext("estimatedDateTime") or item.findtext("scheduleDateTime") or item.findtext("estimatedDatetime") or item.findtext("scheduleDatetime") or "")
+            time_str = str(item.findtext("estimatedDatetime") or item.findtext("scheduleDatetime") or "")
             raw_time = time_str[-4:] if len(time_str) >= 4 else time_str
             formatted_time = f"{raw_time[:2]}:{raw_time[2:]}" if len(raw_time) == 4 else raw_time
             
             items.append({
                 '편명': clean_flight_no(flight_id), '시간': formatted_time,
-                '게이트': item.findtext("gateNumber") or item.findtext("gatenumber") or item.findtext("fstandPosition") or item.findtext("fstandposition") or "",
+                '게이트': item.findtext("gateNumber") or item.findtext("fstandPosition") or "",
                 '출발지': item.findtext("airportCode") or item.findtext("airport") or "",
-                '출구': item.findtext("exitNumber") or item.findtext("exitnumber") or ""
+                '출구': item.findtext("exitNumber") or ""
             })
         
         df = pd.DataFrame(items)
@@ -478,6 +449,7 @@ else:
         final = final[(final['hour'] >= time_range[0]) & (final['hour'] <= time_range[1])]
         
         # ⭐ [스마트 슬라이더 연동 40분 삭제 로직] 
+        # 슬라이더 시작값을 사용자가 '과거'로 당기면(time_range[0] < default_start_hour) 삭제 기능 일시 정지!
         if time_range[0] >= default_start_hour:
             def calc_diff_mins(t_str):
                 try:
