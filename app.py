@@ -100,6 +100,18 @@ def load_pax_data():
         if len(data) > 1:
             df = pd.DataFrame(data[1:], columns=data[0])
             if '조회일자' not in df.columns: df['조회일자'] = today_date_str
+            
+            # ⭐ [만능 엑셀 호환 매핑 엔진]
+            rename_map = {}
+            for col in df.columns:
+                c_upper = str(col).strip().upper()
+                if c_upper in ['FLT', '편명', 'FLIGHT']: rename_map[col] = '편명'
+                elif c_upper in ['ROUTE', '출발지', 'DEST']: rename_map[col] = '출발지'
+                elif c_upper in ['ICN/O BKG', 'BKG', '승객수', 'PAX', 'T/S']: 
+                    if '승객수' not in df.columns and '승객수' not in rename_map.values():
+                        rename_map[col] = '승객수'
+            if rename_map:
+                df = df.rename(columns=rename_map)
             return df
     except: pass
     return pd.DataFrame()
@@ -109,24 +121,35 @@ def fetch_realtime_gate_info(search_date_str):
     import xml.etree.ElementTree as ET
     try:
         api_key = str(st.secrets["api"]["service_key"]).strip()
-        url = "https://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp"
-        req_url = f"{url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=xml&numOfRows=1800&pageNo=1"
-        headers = {"User-Agent": "Mozilla/5.0"}
         
-        response = None
-        for attempt in range(2):
-            try:
-                # ⭐ 타임아웃 대폭 연장: 연결(5초) 대기, 읽기(15초) 대기
-                response = requests.get(req_url, headers=headers, timeout=(5, 15))
-                if response.status_code == 200: break
-            except:
-                if attempt == 1: return pd.DataFrame()
-                time.sleep(1)
+        # ⭐ [핵심: 대리님이 찾아주신 정확한 엔드포인트로 이중화 로직 갱신]
+        api_urls = [
+            "https://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp",  # 1순위: 항공기 운항 현황 (기존)
+            "https://apis.data.go.kr/B551177/StatusOfPassengerFlightsDeOdp/getPassengerArrivalsDeOdp"  # 2순위: 여객기 운항 현황 (새로 찾은 엔드포인트 + 도착 오퍼레이션)
+        ]
+        
+        headers = {"User-Agent": "Mozilla/5.0"}
+        err_text = ""
+        
+        for base_url in api_urls:
+            req_url = f"{base_url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=xml&numOfRows=1800&pageNo=1"
+            
+            response = None
+            for attempt in range(2):
+                try:
+                    response = requests.get(req_url, headers=headers, timeout=(5, 15))
+                    if response.status_code == 200 and "NORMAL SERVICE" in response.text:
+                        break
+                except:
+                    if attempt == 1: pass
+                    time.sleep(1)
+            
+            if response and response.status_code == 200 and "NORMAL SERVICE" in response.text:
+                err_text = response.text
+                break
                 
-        if not response or response.status_code != 200: return pd.DataFrame()
-
-        err_text = response.text
-        if "NORMAL SERVICE" not in err_text: return pd.DataFrame()
+        if not err_text: 
+            return pd.DataFrame()
 
         root = ET.fromstring(err_text)
         items = []
@@ -450,7 +473,6 @@ else:
         final = final[(final['hour'] >= time_range[0]) & (final['hour'] <= time_range[1])]
         
         # ⭐ [스마트 슬라이더 연동 40분 삭제 로직] 
-        # 슬라이더 시작값을 사용자가 '과거'로 당기면(time_range[0] < default_start_hour) 삭제 기능 일시 정지!
         if time_range[0] >= default_start_hour:
             def calc_diff_mins(t_str):
                 try:
