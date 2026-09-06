@@ -8,7 +8,6 @@ import re
 import io
 import requests
 import time
-import json
 from datetime import datetime, timedelta, timezone
 
 st.set_page_config(page_title="T2 보안검색 환승부 잡지", layout="wide", initial_sidebar_state="collapsed")
@@ -118,68 +117,58 @@ def load_pax_data():
 
 @st.cache_data(ttl=290, max_entries=1, show_spinner=False)
 def fetch_realtime_gate_info(search_date_str):
+    import xml.etree.ElementTree as ET
     try:
         api_key = str(st.secrets["api"]["service_key"]).strip()
         
-        # ⭐ 1순위 & 2순위 API 모두 type=json으로 변경
-        req_url1 = f"https://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=json&numOfRows=1800&pageNo=1"
-        req_url2 = f"https://apis.data.go.kr/B551177/StatusOfPassengerFlightsDeOdp/getPassengerArrivalsDeOdp?serviceKey={api_key}&searchday={search_date_str}&from_time=0000&to_time=2400&type=json&numOfRows=1800&pageNo=1"
+        # ⭐ 1순위: 여객기 운항 현황 (StatusOfPassengerFlightsDeOdp)
+        req_url1 = f"https://apis.data.go.kr/B551177/StatusOfPassengerFlightsDeOdp/getPassengerArrivalsDeOdp?serviceKey={api_key}&searchday={search_date_str}&from_time=0000&to_time=2400&type=xml&numOfRows=1800&pageNo=1"
         
+        # ⭐ 2순위: 항공기 운항 현황 (statusOfAllFltDeOdp - 화물/여객 전체 중 여객편)
+        req_url2 = f"https://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=xml&numOfRows=1800&pageNo=1"
+        
+        # 1순위 -> 2순위 순차 요청
         api_urls = [req_url1, req_url2]
         
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
-            "Accept": "application/json, text/html, */*",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Connection": "keep-alive"
         }
         
-        response_data = None
+        err_text = ""
         
         for req_url in api_urls:
             response = None
             for attempt in range(2):
                 try:
                     response = requests.get(req_url, headers=headers, timeout=(10, 30))
-                    if response.status_code == 200:
-                        # JSON 변환 및 정상 결과코드(00) 확인
-                        data = response.json()
-                        res_code = data.get("response", {}).get("header", {}).get("resultCode", "")
-                        if res_code == "00":
-                            response_data = data
-                            break
+                    if response.status_code == 200 and "NORMAL SERVICE" in response.text:
+                        break
                 except:
                     if attempt == 1: pass
                     time.sleep(2)
             
-            # 성공했으면 다른 URL 찌르지 않고 탈출
-            if response_data:
+            if response and response.status_code == 200 and "NORMAL SERVICE" in response.text:
+                err_text = response.text
                 break
                 
-        if not response_data: 
+        if not err_text: 
             return pd.DataFrame()
 
-        # ⭐ 깔끔하고 빠른 JSON 파싱 엔진
-        items_raw = response_data.get("response", {}).get("body", {}).get("items", [])
-        
-        # 공공데이터포털 JSON 특유의 이중 딕셔너리 구조 방어
-        if isinstance(items_raw, dict) and "item" in items_raw:
-            items_raw = items_raw["item"]
-        elif not isinstance(items_raw, list):
-            items_raw = [items_raw] if items_raw else []
-
+        root = ET.fromstring(err_text)
         items = []
-        for item in items_raw:
-            flight_id = str(item.get("flightId") or item.get("fid") or "").replace('DAL', 'DL').replace('KAL', 'KE').replace('AAR', 'OZ')
-            time_str = str(item.get("estimatedDateTime") or item.get("scheduleDateTime") or item.get("estimatedDatetime") or item.get("scheduleDatetime") or "")
+        for item in root.findall(".//item"):
+            flight_id = (item.findtext("flightId") or item.findtext("fid") or "").replace('DAL', 'DL').replace('KAL', 'KE').replace('AAR', 'OZ')
+            time_str = str(item.findtext("estimatedDateTime") or item.findtext("scheduleDateTime") or item.findtext("estimatedDatetime") or item.findtext("scheduleDatetime") or "")
             raw_time = time_str[-4:] if len(time_str) >= 4 else time_str
             formatted_time = f"{raw_time[:2]}:{raw_time[2:]}" if len(raw_time) == 4 else raw_time
             
             items.append({
-                '편명': clean_flight_no(flight_id), 
-                '시간': formatted_time,
-                '게이트': str(item.get("gateNumber") or item.get("gatenumber") or item.get("fstandPosition") or item.get("fstandposition") or ""),
-                '출발지': str(item.get("airportCode") or item.get("airport") or ""),
-                '출구': str(item.get("exitNumber") or item.get("exitnumber") or "")
+                '편명': clean_flight_no(flight_id), '시간': formatted_time,
+                '게이트': item.findtext("gateNumber") or item.findtext("gatenumber") or item.findtext("fstandPosition") or item.findtext("fstandposition") or "",
+                '출발지': item.findtext("airportCode") or item.findtext("airport") or "",
+                '출구': item.findtext("exitNumber") or item.findtext("exitnumber") or ""
             })
         
         df = pd.DataFrame(items)
@@ -453,21 +442,15 @@ if not p_all or df_g.empty:
     if df_g.empty:
         st.error("🚨 **[공항 서버 응답 지연]** 실시간 게이트 정보를 받아오지 못했습니다. 공항 데이터 서버 점검 중이거나 응답이 지연되고 있으니 잠시 후 좌측의 `[🔄 업데이트하기]` 버튼을 눌러주세요.")
         
-        # 🚨 [새로 추가된 진단용 CCTV 영역 - JSON 호환 업그레이드] 
+        # 🚨 [개발자용 진단 CCTV: 1순위 여객기 API 상태 점검]
         with st.expander("🛠️ (개발자용) 공항 서버 원인 진단 확인하기", expanded=True):
             try:
-                st.info("현재 공항 API가 내뱉는 응답 내용을 캡처 중입니다...")
+                st.info("현재 1순위(여객기 API) 서버 응답 상태를 확인 중입니다...")
                 test_key = str(st.secrets["api"]["service_key"]).strip()
-                test_url = f"https://apis.data.go.kr/B551177/StatusOfPassengerFlightsDeOdp/getPassengerArrivalsDeOdp?serviceKey={test_key}&searchday={api_target_date_str}&from_time=0000&to_time=2400&type=json&numOfRows=5&pageNo=1"
+                test_url = f"https://apis.data.go.kr/B551177/StatusOfPassengerFlightsDeOdp/getPassengerArrivalsDeOdp?serviceKey={test_key}&searchday={api_target_date_str}&from_time=0000&to_time=2400&type=xml&numOfRows=5&pageNo=1"
                 t_res = requests.get(test_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
                 st.markdown(f"**HTTP 상태 코드:** `{t_res.status_code}`")
-                
-                try:
-                    # JSON 응답이면 예쁘게 포맷팅해서 보여주기
-                    st.json(t_res.json())
-                except:
-                    # 만약 에러 나서 그냥 HTML/문자열 뱉으면 그대로 출력
-                    st.code(t_res.text[:800], language="xml")
+                st.code(t_res.text[:800], language="xml")
             except Exception as e:
                 st.error(f"통신 연결 자체가 실패했습니다: {e}")
                 
