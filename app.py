@@ -119,31 +119,44 @@ def load_pax_data():
 def fetch_realtime_gate_info(search_date_str):
     import xml.etree.ElementTree as ET
     try:
-        api_key = str(st.secrets["api"]["service_key"]).strip()
+        # ⭐ 1. 투트랙 API 키 설정 (2번째 키가 없으면 자동으로 1번 키를 씁니다)
+        api_key_1 = str(st.secrets["api"]["service_key"]).strip()
         
-        # 1순위: 기존 (항공기)
-        req_url1 = f"https://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=xml&numOfRows=1800&pageNo=1"
-        # 2순위: 신규 (여객기 - 문서 기준 2400 적용)
-        req_url2 = f"https://apis.data.go.kr/B551177/StatusOfPassengerFlightsDeOdp/getPassengerArrivalsDeOdp?serviceKey={api_key}&searchday={search_date_str}&from_time=0000&to_time=2400&type=xml&numOfRows=1800&pageNo=1"
+        # 만약 Streamlit Secrets에 "service_key_2"를 추가하셨다면 그걸 쓰고, 없으면 1번 키 사용
+        api_key_2 = str(st.secrets["api"].get("service_key_2", api_key_1)).strip()
+        
+        # 1순위: 기존 (항공기) -> 1번 키 사용
+        req_url1 = f"https://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp?serviceKey={api_key_1}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=xml&numOfRows=1800&pageNo=1"
+        # 2순위: 신규 (여객기) -> 2번 키 사용
+        req_url2 = f"https://apis.data.go.kr/B551177/StatusOfPassengerFlightsDeOdp/getPassengerArrivalsDeOdp?serviceKey={api_key_2}&searchday={search_date_str}&from_time=0000&to_time=2400&type=xml&numOfRows=1800&pageNo=1"
         
         api_urls = [req_url1, req_url2]
-        headers = {"User-Agent": "Mozilla/5.0"}
+        
+        # ⭐ 2. 정부 방화벽(WAF) 완벽 우회용 최신 크롬 브라우저 위장 헤더
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Connection": "keep-alive"
+        }
+        
         err_text = ""
         
         for req_url in api_urls:
             response = None
+            # 타임아웃을 (연결 5초, 데이터수신 20초)로 늘려 렉 걸린 서버를 조금 더 기다려줍니다.
             for attempt in range(2):
                 try:
-                    response = requests.get(req_url, headers=headers, timeout=(5, 15))
+                    response = requests.get(req_url, headers=headers, timeout=(5, 20))
                     if response.status_code == 200 and "NORMAL SERVICE" in response.text:
                         break
                 except:
                     if attempt == 1: pass
-                    time.sleep(1)
+                    time.sleep(2) # 재시도 전 2초 대기 (서버 숨돌릴 틈 주기)
             
             if response and response.status_code == 200 and "NORMAL SERVICE" in response.text:
                 err_text = response.text
-                break
+                break # 성공하면 즉시 반복문 탈출!
                 
         if not err_text: 
             return pd.DataFrame()
