@@ -122,18 +122,18 @@ def fetch_realtime_gate_info(search_date_str):
     try:
         api_key = str(st.secrets["api"]["service_key"]).strip()
         
-        # ⭐ [핵심: 대리님이 찾아주신 정확한 엔드포인트로 이중화 로직 갱신]
-        api_urls = [
-            "https://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp",  # 1순위: 항공기 운항 현황 (기존)
-            "https://apis.data.go.kr/B551177/StatusOfPassengerFlightsDeOdp/getPassengerArrivalsDeOdp"  # 2순위: 여객기 운항 현황 (새로 찾은 엔드포인트 + 도착 오퍼레이션)
-        ]
+        # 1순위: 기존 항공기 API 요청 URL
+        req_url1 = f"https://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=xml&numOfRows=1800&pageNo=1"
+        
+        # 2순위: 신규 여객기 API 요청 URL (문서 가이드라인 적용 완벽 변환)
+        req_url2 = f"http://apis.data.go.kr/B551177/StatusOfPassengerFlightsDeOdp/getPassengerArrivalsDeOdp?serviceKey={api_key}&searchday={search_date_str}&from_time=0000&to_time=2359&type=xml&numOfRows=1800&pageNo=1"
+        
+        api_urls = [req_url1, req_url2]
         
         headers = {"User-Agent": "Mozilla/5.0"}
         err_text = ""
         
-        for base_url in api_urls:
-            req_url = f"{base_url}?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=xml&numOfRows=1800&pageNo=1"
-            
+        for req_url in api_urls:
             response = None
             for attempt in range(2):
                 try:
@@ -155,15 +155,17 @@ def fetch_realtime_gate_info(search_date_str):
         items = []
         for item in root.findall(".//item"):
             flight_id = (item.findtext("flightId") or item.findtext("fid") or "").replace('DAL', 'DL').replace('KAL', 'KE').replace('AAR', 'OZ')
-            time_str = str(item.findtext("estimatedDatetime") or item.findtext("scheduleDatetime") or "")
+            
+            # 문서에 맞춰 XML 태그 대소문자 차이 모두 대응
+            time_str = str(item.findtext("estimatedDateTime") or item.findtext("scheduleDateTime") or item.findtext("estimatedDatetime") or item.findtext("scheduleDatetime") or "")
             raw_time = time_str[-4:] if len(time_str) >= 4 else time_str
             formatted_time = f"{raw_time[:2]}:{raw_time[2:]}" if len(raw_time) == 4 else raw_time
             
             items.append({
                 '편명': clean_flight_no(flight_id), '시간': formatted_time,
-                '게이트': item.findtext("gateNumber") or item.findtext("fstandPosition") or "",
+                '게이트': item.findtext("gateNumber") or item.findtext("gatenumber") or item.findtext("fstandPosition") or item.findtext("fstandposition") or "",
                 '출발지': item.findtext("airportCode") or item.findtext("airport") or "",
-                '출구': item.findtext("exitNumber") or ""
+                '출구': item.findtext("exitNumber") or item.findtext("exitnumber") or ""
             })
         
         df = pd.DataFrame(items)
