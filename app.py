@@ -182,9 +182,6 @@ if "toast_msg" in st.session_state:
 
 st.markdown("""
     <style>
-    /* 👇 사이드바 버튼은 남기고 우측 상단 메뉴(Github, Fork 등)만 숨김 처리 */
-    [data-testid="stActionElements"] { display: none !important; }
-
     .main .block-container { padding-top: 0px !important; padding-bottom: 0px !important; margin-top: -15px !important; }
     div[data-testid="stVerticalBlock"] { gap: 0px !important; }
     .element-container { margin-bottom: 0px !important; }
@@ -207,7 +204,7 @@ st.markdown("""
     .print-col { flex: 1; min-width: 0; }
     
     @media print {
-        .no-print, header, footer, [data-testid="stSidebar"], [data-testid="stHeader"], [data-testid="stActionElements"], iframe, .icon-container { display: none !important; }
+        .no-print, header, footer, [data-testid="stSidebar"], [data-testid="stHeader"], [data-testid="stToolbar"], iframe, .icon-container { display: none !important; }
         html, body { height: auto !important; min-height: auto !important; width: 1024px !important; min-width: 1024px !important; padding: 0 !important; margin: 0 !important; }
         .appview-container, .main, .block-container, .element-container { padding: 0 !important; margin: 0 !important; width: 1024px !important; max-width: 1024px !important; }
         div[data-testid="stVerticalBlock"] { gap: 0 !important; }
