@@ -182,6 +182,9 @@ if "toast_msg" in st.session_state:
 
 st.markdown("""
     <style>
+    /* 우측 상단 메뉴(Github, Fork 등) 숨김 처리 */
+    [data-testid="stToolbar"] { display: none !important; }
+
     .main .block-container { padding-top: 0px !important; padding-bottom: 0px !important; margin-top: -15px !important; }
     div[data-testid="stVerticalBlock"] { gap: 0px !important; }
     .element-container { margin-bottom: 0px !important; }
