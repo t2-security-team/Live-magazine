@@ -87,7 +87,6 @@ def load_pax_data():
 # 이 작업 스레드에서는 st.* 함수를 호출하지 않습니다.
 GATE_REFRESH_SECONDS = 300
 SCREEN_CHECK_SECONDS = 2
-GATE_ENGINE_VERSION = "central-gates-2026-09-11-v1"
 GATE_ENGINE_VERSION = "central-gates-2026-09-11-v2-supplement"
 GATE_COLUMNS = ["편명", "시간", "게이트", "출발지", "출구"]
 class GateFetchError(Exception):
@@ -158,7 +157,6 @@ def supplement_missing_gates(primary, secondary):
     result.loc[fill, "게이트"] = replacement.loc[fill].astype(int).astype(str)
     return result, int(fill.sum())
 def fetch_gate_payload(api_key, search_date_str):
-    """조회 한 회차. 1차가 실패하거나 비어 있으면 2차를 확인합니다."""
     """조회 한 회차. 1차 실패·빈 목록·누락 게이트가 있을 때 2차를 확인합니다."""
     common = {"serviceKey": api_key, "type": "xml", "numOfRows": 1800, "pageNo": 1}
     endpoints = [
@@ -194,7 +192,6 @@ def fetch_gate_payload(api_key, search_date_str):
                             return {"data": combined, "fetched_at": primary_payload["fetched_at"],
                                     "source": f"1차 API + 2차 게이트 보충 {filled_count}건"}
                         return primary_payload
-                    return {"data": data, "fetched_at": datetime.now(KST), "source": source}
                     return {"data": data, "fetched_at": received_at, "source": source}
                 errors.append(f"{source}: 표시 대상 항공편 자료가 비어 있습니다.")
                 break
