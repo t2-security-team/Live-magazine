@@ -26,7 +26,6 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-)
 # KST 시간 세팅
 KST = timezone(timedelta(hours=9))
 now_kst_time = datetime.now(KST)
