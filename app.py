@@ -756,8 +756,8 @@ else:
         west_p = final[final['구역'] == '서편']['p_val'].sum()
         east_p = final[final['구역'] == '동편']['p_val'].sum()
         
-        w_html = generate_table_html(final[final['구역'] == '서편'], "⬅ 서편", west_p, "#DC2626", opt_airline, opt_peak, opt_incoming, base_font_size, target_date, now_kst_time)
-        e_html = generate_table_html(final[final['구역'] == '동편'], "➡ 동편", east_p, "#2563EB", opt_airline, opt_peak, opt_incoming, base_font_size, target_date, now_kst_time)
+        w_html = generate_table_html(final[final['구역'] == '서편'], " 서편", west_p, "#DC2626", opt_airline, opt_peak, opt_incoming, base_font_size, target_date, now_kst_time)
+        e_html = generate_table_html(final[final['구역'] == '동편'], " 동편", east_p, "#2563EB", opt_airline, opt_peak, opt_incoming, base_font_size, target_date, now_kst_time)
         
         st.markdown(f'<div class="print-row">{e_html}{w_html}</div>', unsafe_allow_html=True)
     if final.empty:
