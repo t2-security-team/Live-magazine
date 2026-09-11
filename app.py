@@ -182,16 +182,6 @@ if "toast_msg" in st.session_state:
 
 st.markdown("""
     <style>
-    /* 🚨 소스코드 유출 방지: 클라우드 환경 우측 깃허브 배지 및 기본 메뉴 완벽 차단 */
-    .viewerBadge_container, .viewerBadge_link, .stDeployButton, [data-testid="stToolbar"], #MainMenu { 
-        display: none !important; 
-        visibility: hidden !important; 
-        opacity: 0 !important;
-    }
-    
-    /* 혹시라도 사이드바 버튼이 영향받는 것을 방지하기 위해 강제 보호 */
-    [data-testid="collapsedControl"] { display: flex !important; }
-
     .main .block-container { padding-top: 0px !important; padding-bottom: 0px !important; margin-top: -15px !important; }
     div[data-testid="stVerticalBlock"] { gap: 0px !important; }
     .element-container { margin-bottom: 0px !important; }
@@ -319,7 +309,7 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
                 flight_dt = target_date.replace(hour=int(time_parts[0]), minute=int(time_parts[1]), second=0, microsecond=0)
                 diff_mins = (now_kst - flight_dt).total_seconds() / 60.0
                 if diff_mins >= 20: is_past_20_mins = True  
-                elif 0 <= diff_mins < 10: is_blinking = True; is_landing = True        
+                elif 0 <= diff_mins < 10: is_blinking = True; is_landing = True       
                 elif 10 <= diff_mins < 20: is_landed = True        
         except: pass
             
@@ -536,10 +526,8 @@ else:
             .custom-btn { background-color: white; border: 1px solid #dcdcdc; color: #31333f; padding: 6px 15px; font-size: 14px; border-radius: 6px; cursor: pointer; font-family: sans-serif; box-shadow: 0px 1px 3px rgba(0,0,0,0.1); }
             .custom-btn:hover { border-color: #ff4b4b; color: #ff4b4b; }
             </style>
-            
             <button class="custom-btn" onclick="window.parent.print()">📄 PDF 저장</button>
             <button class="custom-btn" onclick="takePic()" id="pic-btn">📸 전체 사진으로 저장</button>
-            
             <script>
             var parentWin = window.parent; var parentDoc = parentWin.document;
             function takePic() {
