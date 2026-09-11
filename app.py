@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+# T2 중앙 게이트 공유 버전 — 2026-09-11
 import html
 import streamlit as st
 import pandas as pd
@@ -5,12 +7,33 @@ import numpy as np
 import gspread
 from google.oauth2.service_account import Credentials
 import re
-import io
+import threading
+import xml.etree.ElementTree as ET
+from urllib.parse import unquote
 import requests
 import time
 from datetime import datetime, timedelta, timezone
 
 st.set_page_config(page_title="T2 보안검색 환승부 잡지", layout="wide", initial_sidebar_state="collapsed")
+
+
+# 사진의 GitHub 버튼은 Cloud 도구 모음 안에서 글자 없이 아이콘만 있는 버튼입니다.
+# Fork처럼 글자가 있는 버튼, 점 세 개 메뉴, 사이드바 펼침 화살표는 선택하지 않습니다.
+# 화면에서 버튼만 숨깁니다. 공개 GitHub 저장소의 접근 권한은 바꾸지 않습니다.
+# Streamlit 내부 화면 구조에 의존하는 CSS이며, 요청에 따라 실행 테스트하지 않았습니다.
+# 선택자 참고: https://github.com/streamlit/streamlit/blob/develop/frontend/app/src/components/ToolbarActions/ToolbarActions.tsx
+st.markdown(
+    """
+    <style>
+    [data-testid="stToolbarActions"]
+    [data-testid="stToolbarActionButton"]:has([data-testid="stToolbarActionButtonIcon"]):not(:has([data-testid="stToolbarActionButtonLabel"])) {
+        display: none !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 # KST 시간 세팅
 KST = timezone(timedelta(hours=9))
@@ -18,53 +41,11 @@ now_kst_time = datetime.now(KST)
 today_date_str = now_kst_time.strftime("%Y-%m-%d")
 tomorrow_date_str = (now_kst_time + timedelta(days=1)).strftime("%Y-%m-%d")
 
-if "last_updated" not in st.session_state:
-    st.session_state["last_updated"] = now_kst_time.strftime("%Y-%m-%d %H:%M:%S")
-
-# ⭐ 하얀화면 1차 방어: 마지막 정상 게이트 데이터를 기억해둘 공간
-if "last_valid_gate_df" not in st.session_state:
-    st.session_state["last_valid_gate_df"] = pd.DataFrame()
-
-# 새벽 1시 자동 캐시 초기화 엔진 (구글 시트 삭제 아님! 메모리만 비워줌)
-if "last_auto_clear" not in st.session_state:
-    st.session_state["last_auto_clear"] = None
-
-if now_kst_time.hour == 1 and st.session_state["last_auto_clear"] != today_date_str:
-    try:
-        get_gspread_client.clear()
-        get_spreadsheet.clear()
-        load_file_list.clear()
-        load_pax_data.clear()
-        fetch_realtime_gate_info.clear()
-        st.session_state["last_valid_gate_df"] = pd.DataFrame() # 백업 초기화
-    except Exception:
-        pass
-    st.session_state["last_auto_clear"] = today_date_str
+# 새벽 1시 강제 초기화는 사용하지 않습니다.
 
 SHEET_NAME = "보안검색_데이터_공유"
 
-st.components.v1.html(
-    """
-    <script>
-    var parentWin = window.parent;
-    var parentDoc = parentWin.document;
-
-    function force5MinRefresh() {
-        var btns = parentDoc.querySelectorAll('button');
-        var clicked = false;
-        btns.forEach(function(b) {
-            if (b.innerText.includes("업데이트하기") || b.innerText.includes("실시간 업데이트")) {
-                b.click();
-                clicked = true;
-            }
-        });
-        if (!clicked) { parentWin.location.reload(); }
-    }
-    setInterval(force5MinRefresh, 300000);
-    </script>
-    """,
-    height=0, width=0
-)
+# 각 화면은 아래의 공유 상태 확인기로 갱신됩니다.
 
 @st.cache_resource(show_spinner=False)
 def get_gspread_client():
@@ -78,7 +59,7 @@ def get_spreadsheet():
     client = get_gspread_client()
     return client.open(SHEET_NAME)
 
-@st.cache_data(ttl=1800, max_entries=1, show_spinner=False)
+@st.cache_data(ttl=300, max_entries=1, show_spinner=False)
 def load_file_list():
     try:
         spreadsheet = get_spreadsheet()
@@ -91,7 +72,7 @@ def load_file_list():
     except: pass
     return pd.DataFrame()
 
-@st.cache_data(ttl=21600, max_entries=1, show_spinner=False)
+@st.cache_data(ttl=300, max_entries=1, show_spinner=False)
 def load_pax_data():
     try:
         spreadsheet = get_spreadsheet()
@@ -115,66 +96,260 @@ def load_pax_data():
     except: pass
     return pd.DataFrame()
 
-@st.cache_data(ttl=290, max_entries=1, show_spinner=False)
-def fetch_realtime_gate_info(search_date_str):
-    import xml.etree.ElementTree as ET
-    try:
-        api_key = str(st.secrets["api"]["service_key"]).strip()
-        
-        # ⭐ 1순위: 여객기 운항 현황 (StatusOfPassengerFlightsDeOdp)
-        req_url1 = f"https://apis.data.go.kr/B551177/StatusOfPassengerFlightsDeOdp/getPassengerArrivalsDeOdp?serviceKey={api_key}&searchday={search_date_str}&from_time=0000&to_time=2400&type=xml&numOfRows=1800&pageNo=1"
-        
-        # ⭐ 2순위: 항공기 운항 현황 (statusOfAllFltDeOdp - 화물/여객 전체 중 여객편)
-        req_url2 = f"https://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp?serviceKey={api_key}&searchdtCode=S&searchDate={search_date_str}&searchFrom=0000&searchTo=2359&passengerOrCargo=P&type=xml&numOfRows=1800&pageNo=1"
-        
-        # 1순위 -> 2순위 순차 요청
-        api_urls = [req_url1, req_url2]
-        
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Connection": "keep-alive"
-        }
-        
-        err_text = ""
-        
-        for req_url in api_urls:
-            response = None
-            for attempt in range(2):
-                try:
-                    response = requests.get(req_url, headers=headers, timeout=(10, 30))
-                    if response.status_code == 200 and "NORMAL SERVICE" in response.text:
-                        break
-                except:
-                    if attempt == 1: pass
-                    time.sleep(2)
-            
-            if response and response.status_code == 200 and "NORMAL SERVICE" in response.text:
-                err_text = response.text
-                break
-                
-        if not err_text: 
-            return pd.DataFrame()
+# 서버 전체가 함께 사용하는 게이트 수집기입니다.
+# 이 작업 스레드에서는 st.* 함수를 호출하지 않습니다.
+GATE_REFRESH_SECONDS = 300
+SCREEN_CHECK_SECONDS = 2
+GATE_ENGINE_VERSION = "central-gates-2026-09-11-v1"
+GATE_COLUMNS = ["편명", "시간", "게이트", "출발지", "출구"]
 
-        root = ET.fromstring(err_text)
-        items = []
-        for item in root.findall(".//item"):
-            flight_id = (item.findtext("flightId") or item.findtext("fid") or "").replace('DAL', 'DL').replace('KAL', 'KE').replace('AAR', 'OZ')
-            time_str = str(item.findtext("estimatedDateTime") or item.findtext("scheduleDateTime") or item.findtext("estimatedDatetime") or item.findtext("scheduleDatetime") or "")
-            raw_time = time_str[-4:] if len(time_str) >= 4 else time_str
-            formatted_time = f"{raw_time[:2]}:{raw_time[2:]}" if len(raw_time) == 4 else raw_time
-            
-            items.append({
-                '편명': clean_flight_no(flight_id), '시간': formatted_time,
-                '게이트': item.findtext("gateNumber") or item.findtext("gatenumber") or item.findtext("fstandPosition") or item.findtext("fstandposition") or "",
-                '출발지': item.findtext("airportCode") or item.findtext("airport") or "",
-                '출구': item.findtext("exitNumber") or item.findtext("exitnumber") or ""
-            })
-        
-        df = pd.DataFrame(items)
-        if not df.empty: df = df[df['편명'].str.startswith(('KE', 'OZ', 'DL'), na=False)]
-        return df
-    except: return pd.DataFrame()
+
+class GateFetchError(Exception):
+    """화면에 표시할 수 있는 비밀키 없는 오류입니다."""
+
+
+def parse_gate_xml(xml_text):
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        raise GateFetchError("공항에서 받은 응답 형식을 읽지 못했습니다.") from None
+    for node in root.iter():
+        node.tag = node.tag.rsplit("}", 1)[-1].lower()
+    code = (root.findtext(".//resultcode") or "").strip()
+    message = (root.findtext(".//resultmsg") or "").strip().upper()
+    if code:
+        success = code in {"0", "00", "000", "0000"}
+    else:
+        success = "NORMAL SERVICE" in message or message in {"OK", "SUCCESS", "정상"}
+    if not success:
+        safe_code = code if re.fullmatch(r"[A-Za-z0-9_-]{1,32}", code) else "확인 불가"
+        raise GateFetchError(f"공항 응답 코드: {safe_code}")
+    rows = []
+    for item in root.findall(".//item"):
+        fields = {child.tag: (child.text or "").strip() for child in item}
+
+        def pick(*names):
+            return next((fields[name.lower()] for name in names if fields.get(name.lower())), "")
+
+        flight = pick("flightId", "fid").upper().replace("DAL", "DL").replace("KAL", "KE").replace("AAR", "OZ")
+        flight = clean_flight_no(flight)
+        if not re.fullmatch(r"(?:KE|OZ|DL)\d+[A-Z]?", flight):
+            continue
+        formatted_time = ""
+        for name in ("estimatedDateTime", "scheduleDateTime"):
+            value = pick(name)
+            if re.fullmatch(r"\d{12}", value):
+                value = value[-4:]
+            elif re.fullmatch(r"\d{14}", value):
+                value = value[-6:-2]
+            match = re.fullmatch(r"(\d{1,2}):(\d{2})(?::\d{2})?", value)
+            if match:
+                hour, minute = map(int, match.groups())
+            elif re.fullmatch(r"\d{3,4}", value):
+                value = value.zfill(4)
+                hour, minute = int(value[:2]), int(value[2:])
+            else:
+                continue
+            if 0 <= hour <= 23 and 0 <= minute <= 59:
+                formatted_time = f"{hour:02d}:{minute:02d}"
+                break
+        rows.append({"편명": flight, "시간": formatted_time,
+                     "게이트": pick("gateNumber", "fstandPosition"),
+                     "출발지": pick("airportCode", "airport"),
+                     "출구": pick("exitNumber")})
+    return pd.DataFrame(rows, columns=GATE_COLUMNS).drop_duplicates().reset_index(drop=True)
+
+
+def fetch_gate_payload(api_key, search_date_str):
+    """조회 한 회차. 1차가 실패하거나 비어 있으면 2차를 확인합니다."""
+    common = {"serviceKey": api_key, "type": "xml", "numOfRows": 1800, "pageNo": 1}
+    endpoints = [
+        ("1차 API", "https://apis.data.go.kr/B551177/StatusOfPassengerFlightsDeOdp/getPassengerArrivalsDeOdp",
+         {"searchday": search_date_str, "from_time": "0000", "to_time": "2400"}),
+        ("2차 API", "https://apis.data.go.kr/B551177/statusOfAllFltDeOdp/getFltArrivalsDeOdp",
+         {"searchdtCode": "S", "searchDate": search_date_str, "searchFrom": "0000", "searchTo": "2359", "passengerOrCargo": "P"}),
+    ]
+    errors = []
+    for source, url, params in endpoints:
+        for attempt in range(2):
+            response = None
+            retryable = True
+            try:
+                response = requests.get(url, params={**common, **params},
+                    headers={"User-Agent": "Mozilla/5.0", "Accept": "application/xml"}, timeout=(5, 12))
+                if response.status_code != 200:
+                    retryable = response.status_code == 429 or response.status_code >= 500
+                    raise GateFetchError(f"HTTP {response.status_code}")
+                data = parse_gate_xml(response.text)
+                if not data.empty:
+                    return {"data": data, "fetched_at": datetime.now(KST), "source": source}
+                errors.append(f"{source}: 표시 대상 항공편 자료가 비어 있습니다.")
+                break
+            except requests.RequestException:
+                problem = "연결이 지연되거나 끊겼습니다."
+            except GateFetchError as exc:
+                problem = str(exc)
+            finally:
+                if response is not None:
+                    response.close()
+            if attempt == 0 and retryable:
+                time.sleep(1)
+            else:
+                errors.append(f"{source}: {problem}")
+                break
+    # 빈 응답으로 마지막 정상 게이트를 덮어쓰지 않습니다.
+    raise GateFetchError(" / ".join(errors) or "공항 자료를 받지 못했습니다.")
+
+
+class CentralGateHub:
+    """한 서버 프로세스에 하나. 날짜별 저장소 + 수집 작업 한 개 + 잠금."""
+
+    def __init__(self, api_key, fetcher, refresh_seconds=300, idle_seconds=90,
+                 clock=None, wall_clock=None):
+        self._api_key = api_key
+        self._fetcher = fetcher
+        self._refresh_seconds = refresh_seconds
+        self._idle_seconds = idle_seconds
+        self._clock = clock or time.monotonic
+        self._wall_clock = wall_clock or (lambda: datetime.now(KST))
+        self._lock = threading.Lock()
+        self._wake = threading.Event()
+        self._thread = None
+        self._closed = False
+        self._entries = {}
+        self._last_access = self._clock()
+
+    def _read(self, search_date_str, include_data):
+        if not re.fullmatch(r"\d{8}", search_date_str):
+            raise ValueError("올바른 조회 날짜가 필요합니다.")
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("수집기가 종료되었습니다.")
+            self._last_access = self._clock()
+            valid_dates = {(self._wall_clock() + timedelta(days=i)).strftime("%Y%m%d") for i in (0, 1)}
+            for old_date in list(self._entries):
+                if old_date not in valid_dates and not self._entries[old_date]["updating"]:
+                    del self._entries[old_date]
+            if search_date_str not in valid_dates:
+                raise ValueError("오늘 또는 내일 자료만 조회할 수 있습니다.")
+            if search_date_str not in self._entries:
+                self._entries[search_date_str] = {
+                    "data": pd.DataFrame(columns=GATE_COLUMNS), "fetched_at": None,
+                    "checked_at": None, "source": "", "error": "", "updating": False,
+                    "next_due": self._clock(), "next_check_at": None, "version": 0,
+                }
+                self._wake.set()
+            if self._thread is None or not self._thread.is_alive():
+                self._thread = threading.Thread(target=self._run, name="t2-central-gate", daemon=True)
+                self._thread.start()
+            entry = self._entries[search_date_str]
+            result = {key: value for key, value in entry.items() if key not in {"data", "next_due"}}
+            # 재접속 직후에도 오래된 표를 최신인 것처럼 보이지 않게 합니다.
+            result["updating"] = entry["updating"] or entry["next_due"] <= self._clock()
+            if include_data:
+                result["data"] = entry["data"].copy(deep=True)
+            return result
+
+    def snapshot(self, search_date_str):
+        return self._read(search_date_str, include_data=True)
+
+    def status(self, search_date_str):
+        # 화면 확인에는 큰 표를 복사하지 않고 상태 번호만 읽습니다.
+        return self._read(search_date_str, include_data=False)
+
+    def _run(self):
+        while True:
+            selected = None
+            with self._lock:
+                now = self._clock()
+                if self._closed or now - self._last_access >= self._idle_seconds:
+                    self._thread = None
+                    return
+                valid_dates = {(self._wall_clock() + timedelta(days=i)).strftime("%Y%m%d") for i in (0, 1)}
+                candidates = [(date, entry) for date, entry in self._entries.items() if date in valid_dates]
+                if candidates:
+                    date, entry = min(candidates, key=lambda pair: pair[1]["next_due"])
+                    if entry["next_due"] <= now:
+                        entry["updating"] = True
+                        entry["version"] += 1
+                        selected = (date, entry)
+                timeout = min(30.0, max(0.01, self._idle_seconds - (now - self._last_access)))
+                if selected is None and candidates:
+                    timeout = min(timeout, max(0.01, min(entry["next_due"] for _, entry in candidates) - now))
+            if selected is None:
+                self._wake.wait(timeout)
+                self._wake.clear()
+                continue
+            date, entry = selected
+            payload = None
+            try:
+                payload = self._fetcher(self._api_key, date)
+                if payload["data"].empty:
+                    raise GateFetchError("표시 대상 항공편 자료가 비어 있습니다.")
+                # 처리와 검증까지 끝난 새 표만 한 번에 공개합니다.
+                payload = {"data": payload["data"].copy(deep=True),
+                           "fetched_at": payload["fetched_at"], "source": payload["source"]}
+                problem = ""
+            except GateFetchError as exc:
+                payload = None
+                problem = str(exc)
+            except Exception as exc:
+                payload = None
+                problem = f"게이트 자료 처리 중 오류가 발생했습니다. ({type(exc).__name__})"
+            with self._lock:
+                if self._closed:
+                    self._thread = None
+                    return
+                if payload is not None:
+                    entry.update(payload)
+                entry["checked_at"] = self._wall_clock()
+                entry["next_due"] = self._clock() + self._refresh_seconds
+                entry["next_check_at"] = entry["checked_at"] + timedelta(seconds=self._refresh_seconds)
+                entry["error"] = problem
+                entry["updating"] = False
+                entry["version"] += 1
+
+    def close(self):
+        # 검사 종료나 명시적 서버 종료용입니다. 화면 버튼에서는 호출하지 않습니다.
+        with self._lock:
+            self._closed = True
+            worker = self._thread
+        self._wake.set()
+        if worker is not None and worker is not threading.current_thread():
+            worker.join(timeout=1)
+
+
+@st.cache_resource(show_spinner=False)
+def get_central_gate_hub(api_key, engine_version):
+    return CentralGateHub(api_key, fetch_gate_payload, refresh_seconds=GATE_REFRESH_SECONDS)
+
+
+def install_shared_screen_updates(hub, search_date_str, shown_version):
+    rendered_minute = datetime.now(KST).strftime("%Y%m%d%H%M")
+    fragment = getattr(st, "fragment", None) or getattr(st, "experimental_fragment", None)
+    if fragment is not None:
+        @fragment(run_every=SCREEN_CHECK_SECONDS)
+        def screen_clock():
+            # 분/날짜가 바뀌면 기존 시간 표시와 필터도 갱신합니다.
+            if datetime.now(KST).strftime("%Y%m%d%H%M") != rendered_minute:
+                st.rerun()
+            if hub is not None and hub.status(search_date_str)["version"] != shown_version:
+                st.rerun()
+        screen_clock()
+    else:
+        # 구버전 호환: 공항 재요청 없이 화면 버튼만 누릅니다.
+        st.components.v1.html("""
+        <script>
+        setInterval(function() {
+          try {
+            const b = Array.from(window.parent.document.querySelectorAll('button'))
+              .find(b => b.innerText.includes('업데이트하기'));
+            if (b) b.click();
+          } catch (e) {}
+        }, 5000);
+        </script>
+        """, height=0, width=0)
+
 
 if "toast_msg" in st.session_state:
     st.toast(st.session_state["toast_msg"], icon="✅")
@@ -349,16 +524,11 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
 with st.sidebar:
     st.markdown("<h3 style='margin: -10px 0px -15px 0px !important; padding: 0px !important; font-size: 19px; font-weight: bold; color: #1E3A8A;'>🔄 실시간 업데이트</h3>", unsafe_allow_html=True)
     
-    if st.button("🔄 업데이트하기", use_container_width=True):
-        fetch_realtime_gate_info.clear()
-        load_pax_data.clear()
-        load_file_list.clear()
-        st.session_state["toast_msg"] = "모든 정보를 최신 상태로 업데이트했습니다!"
-        st.session_state["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
-        st.rerun()
-        
-    st.caption(f"마지막 업데이트: {st.session_state['last_updated']}")
-    st.caption("💡 5분(300초)마다 자동으로 최신 게이트 정보를 갱신합니다!")
+    st.button("🔄 업데이트하기", use_container_width=True,
+              help="서버가 받은 최신 자료를 다시 표시합니다. 공항에 추가 요청을 보내지 않습니다.")
+    gate_time_placeholder = st.empty()
+    st.caption("💡 게이트는 서버에서 날짜별로 약 5분마다 갱신합니다.")
+    st.caption("새로 받은 게이트는 연결된 화면에 자동 반영됩니다.")
 
     st.divider()
     file_list_placeholder = st.container()
@@ -389,29 +559,58 @@ with st.sidebar:
     
     st.divider()
     st.header("🛠️ 시스템 복구")
-    if st.button("🗑️ 전체 캐시 초기화", use_container_width=True, type="secondary"):
-        fetch_realtime_gate_info.clear()
+    if st.button("🔌 승객 자료 연결 다시 시도", use_container_width=True, type="secondary"):
         load_pax_data.clear()
         load_file_list.clear()
         get_spreadsheet.clear()
         get_gspread_client.clear()
-        st.session_state["last_valid_gate_df"] = pd.DataFrame()
-        st.session_state["toast_msg"] = "모든 캐시를 비우고 시스템 연결을 초기화했습니다!"
+        st.session_state["toast_msg"] = "승객 자료 연결을 다시 시도합니다."
         st.rerun()
 
-with st.spinner("⏳ 실시간 게이트 및 승객 데이터를 불러오는 중입니다..."):
-    df_g = fetch_realtime_gate_info(api_target_date_str)
-    
-    if df_g.empty:
-        fetch_realtime_gate_info.clear() 
-        if not st.session_state.get("last_valid_gate_df", pd.DataFrame()).empty:
-            df_g = st.session_state["last_valid_gate_df"].copy()
-            st.warning("⚠️ 현재 공항 서버 응답 지연으로 인해 마지막으로 수신된 정상 데이터를 표출 중입니다. (자동 복구 시도 중)")
-    else:
-        st.session_state["last_valid_gate_df"] = df_g.copy()
+# 게이트 조회는 중앙 수집기만 수행합니다. 새 접속도 같은 백업을 읽습니다.
+gate_hub = None
+gate_status = {"data": pd.DataFrame(columns=GATE_COLUMNS), "fetched_at": None,
+               "checked_at": None, "source": "", "error": "", "updating": False,
+               "next_check_at": None, "version": -1}
+try:
+    gate_api_key = unquote(str(st.secrets["api"]["service_key"]).strip())
+    if not gate_api_key:
+        raise ValueError("empty key")
+    gate_hub = get_central_gate_hub(gate_api_key, GATE_ENGINE_VERSION)
+    gate_status = gate_hub.snapshot(api_target_date_str)
+except Exception:
+    gate_status["error"] = "공항 연결 설정을 확인하지 못했습니다. 사이트의 기존 연결키 설정을 확인해 주세요."
 
+df_g = gate_status["data"]
+with st.spinner("⏳ 승객 자료를 확인하는 중입니다..."):
     full_pax_df = load_pax_data()
     full_files_df = load_file_list()
+
+fetched_at = gate_status["fetched_at"]
+if fetched_at is not None:
+    gate_time_placeholder.caption(f"게이트 정상 수신: {fetched_at:%Y-%m-%d %H:%M:%S}")
+    st.caption(f"게이트 정상 수신: {fetched_at:%Y-%m-%d %H:%M:%S} · 약 5분마다 갱신")
+else:
+    gate_time_placeholder.caption("게이트 자료: 첫 수신 대기 중")
+
+if gate_status["updating"]:
+    if df_g.empty:
+        st.info("⏳ 공항에서 첫 게이트 자료를 받고 있습니다. 받는 즉시 자동으로 표시합니다.")
+    elif gate_status["error"]:
+        st.warning(f"⚠️ 게이트 연결 재시도 중 · 마지막 정상 수신 {fetched_at:%Y-%m-%d %H:%M:%S}. 현재 게이트와 다를 수 있습니다.")
+    else:
+        st.info(f"🔄 새 게이트를 확인 중입니다. 현재 표는 {fetched_at:%H:%M:%S} 수신 자료입니다.")
+elif gate_status["error"]:
+    if not df_g.empty:
+        st.warning(f"⚠️ 게이트 갱신 실패 · 마지막 정상 수신 {fetched_at:%Y-%m-%d %H:%M:%S}. 현재 게이트와 다를 수 있습니다.")
+    else:
+        st.warning("선택한 날짜의 게이트 자료를 아직 받지 못했습니다. 내일 자료는 아직 제공되지 않았을 수도 있습니다.")
+    with st.expander("게이트 연결 상태"):
+        st.write(gate_status["error"])
+        if gate_status["next_check_at"] is not None:
+            st.caption(f"다음 자동 조회 예정: {gate_status['next_check_at']:%H:%M:%S}")
+elif df_g.empty:
+    st.info("⏳ 게이트 자료를 준비 중입니다. 잠시 후 자동으로 표시합니다.")
 
 if not full_pax_df.empty: saved_pax_df = full_pax_df[full_pax_df['조회일자'] == target_date_str]
 else: saved_pax_df = pd.DataFrame()
@@ -439,21 +638,6 @@ if not p_all or df_g.empty:
     st.markdown("<h2 style='text-align: center;'>✈ T2 보안검색 환승부 잡지 (실시간 연동) ✈</h2>", unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
     
-    if df_g.empty:
-        st.error("🚨 **[공항 서버 응답 지연]** 실시간 게이트 정보를 받아오지 못했습니다. 공항 데이터 서버 점검 중이거나 응답이 지연되고 있으니 잠시 후 좌측의 `[🔄 업데이트하기]` 버튼을 눌러주세요.")
-        
-        # 🚨 [개발자용 진단 CCTV: 1순위 여객기 API 상태 점검]
-        with st.expander("🛠️ (개발자용) 공항 서버 원인 진단 확인하기", expanded=True):
-            try:
-                st.info("현재 1순위(여객기 API) 서버 응답 상태를 확인 중입니다...")
-                test_key = str(st.secrets["api"]["service_key"]).strip()
-                test_url = f"https://apis.data.go.kr/B551177/StatusOfPassengerFlightsDeOdp/getPassengerArrivalsDeOdp?serviceKey={test_key}&searchday={api_target_date_str}&from_time=0000&to_time=2400&type=xml&numOfRows=5&pageNo=1"
-                t_res = requests.get(test_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-                st.markdown(f"**HTTP 상태 코드:** `{t_res.status_code}`")
-                st.code(t_res.text[:800], language="xml")
-            except Exception as e:
-                st.error(f"통신 연결 자체가 실패했습니다: {e}")
-                
     if not p_all:
         st.warning("📂 **[승객 데이터 누락]** 아직 구글 시트에 공유된 승객수 엑셀 파일이 없습니다. [데이터 업로드] 사이트에서 해당 날짜의 엑셀 파일을 먼저 저장해 주세요.")
 else:
@@ -597,3 +781,8 @@ else:
         e_html = generate_table_html(final[final['구역'] == '동편'], "➡ 동편", east_p, "#2563EB", opt_airline, opt_peak, opt_incoming, base_font_size, target_date, now_kst_time)
         
         st.markdown(f'<div class="print-row">{e_html}{w_html}</div>', unsafe_allow_html=True)
+    if final.empty:
+        st.info("선택한 날짜·시간대에 표시할 항공편이 없습니다. 편명 일치 여부와 조회 시간대를 확인해 주세요.")
+
+# 표를 그린 뒤에 연결합니다. 서버의 상태 번호가 바뀔 때 화면을 다시 그립니다.
+install_shared_screen_updates(gate_hub, api_target_date_str, gate_status["version"])
