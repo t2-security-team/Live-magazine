@@ -14,21 +14,18 @@ import requests
 import time
 from datetime import datetime, timedelta, timezone
 st.set_page_config(page_title="T2 보안검색 환승부 잡지", layout="wide", initial_sidebar_state="collapsed")
-# 사진의 GitHub 버튼은 Cloud 도구 모음 안에서 글자 없이 아이콘만 있는 버튼입니다.
-# Fork처럼 글자가 있는 버튼, 점 세 개 메뉴, 사이드바 펼침 화살표는 선택하지 않습니다.
-# 화면에서 버튼만 숨깁니다. 공개 GitHub 저장소의 접근 권한은 바꾸지 않습니다.
-# Streamlit 내부 화면 구조에 의존하는 CSS이며, 요청에 따라 실행 테스트하지 않았습니다.
 # 선택자 참고: https://github.com/streamlit/streamlit/blob/develop/frontend/app/src/components/ToolbarActions/ToolbarActions.tsx
 st.markdown(
+    st.markdown(
     """
     <style>
-    [data-testid="stToolbarActions"]
-    [data-testid="stToolbarActionButton"]:has([data-testid="stToolbarActionButtonIcon"]):not(:has([data-testid="stToolbarActionButtonLabel"])) {
+    [data-testid="stToolbarActions"] {
         display: none !important;
     }
     </style>
     """,
     unsafe_allow_html=True,
+)
 )
 # KST 시간 세팅
 KST = timezone(timedelta(hours=9))
