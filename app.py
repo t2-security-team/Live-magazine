@@ -682,7 +682,7 @@ else:
         def c_sum(c): return final[final['편명'].str.startswith(c, na=False)]['p_val'].sum()
         ke_s, oz_s, dl_s = c_sum('KE'), c_sum('OZ'), c_sum('DL')
         
-        st.components.v1.html(
+        st.iframe(
             """
             <style>
             body { margin: 0; padding: 0; overflow: hidden; display: flex; gap: 10px; }
