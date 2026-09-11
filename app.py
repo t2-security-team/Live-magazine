@@ -14,9 +14,9 @@ import requests
 import time
 from datetime import datetime, timedelta, timezone
 st.set_page_config(page_title="T2 보안검색 환승부 잡지", layout="wide", initial_sidebar_state="collapsed")
-# 선택자 참고: https://github.com/streamlit/streamlit/blob/develop/frontend/app/src/components/ToolbarActions/ToolbarActions.tsx
+# Fork와 GitHub 아이콘이 있는 도구 모음만 숨깁니다.
+# 사이드바 화살표와 점 세 개 메뉴는 유지합니다.
 st.markdown(
-    st.markdown(
     """
     <style>
     [data-testid="stToolbarActions"] {
@@ -26,6 +26,7 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
 # KST 시간 세팅
 KST = timezone(timedelta(hours=9))
 now_kst_time = datetime.now(KST)
