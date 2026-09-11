@@ -182,11 +182,15 @@ if "toast_msg" in st.session_state:
 
 st.markdown("""
     <style>
-    /* ✅ 핵심 수정: 사이드바 화살표(>)는 건드리지 않고, 우측 메뉴 요소들만 정확히 가립니다. */
-    [data-testid="stActionElements"] { display: none !important; }
-    .viewerBadge_container { display: none !important; }
-    .stDeployButton { display: none !important; }
-    #MainMenu { display: none !important; }
+    /* 🚨 소스코드 유출 방지: 클라우드 환경 우측 깃허브 배지 및 기본 메뉴 완벽 차단 */
+    .viewerBadge_container, .viewerBadge_link, .stDeployButton, [data-testid="stToolbar"], #MainMenu { 
+        display: none !important; 
+        visibility: hidden !important; 
+        opacity: 0 !important;
+    }
+    
+    /* 혹시라도 사이드바 버튼이 영향받는 것을 방지하기 위해 강제 보호 */
+    [data-testid="collapsedControl"] { display: flex !important; }
 
     .main .block-container { padding-top: 0px !important; padding-bottom: 0px !important; margin-top: -15px !important; }
     div[data-testid="stVerticalBlock"] { gap: 0px !important; }
