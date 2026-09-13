@@ -518,7 +518,7 @@ with st.sidebar:
     st.markdown("<h3 style='margin: -10px 0px 8px 0px !important; padding: 0px !important; font-size: 19px; font-weight: bold; color: #1E3A8A;'>🔄 게이트 수신 상태</h3>", unsafe_allow_html=True)
     
     gate_time_placeholder = st.empty()
-    st.caption(f"💡 게이트는 서버에서 날짜별로 약 {GATE_REFRESH_SECONDS // 60}분마다 갱신합니다.")
+    st.caption(f"💡 게이트는 서버에서 약 {GATE_REFRESH_SECONDS // 60}분마다 갱신합니다.")
     st.caption("새로 받은 게이트는 연결된 화면에 자동 반영됩니다.")
     st.divider()
     file_list_placeholder = st.container()
