@@ -82,7 +82,7 @@ def load_pax_data():
     return pd.DataFrame()
 # 서버 전체가 함께 사용하는 게이트 수집기입니다.
 # 이 작업 스레드에서는 st.* 함수를 호출하지 않습니다.
-GATE_REFRESH_SECONDS = 300
+GATE_REFRESH_SECONDS = 180
 SCREEN_CHECK_SECONDS = 2
 GATE_ENGINE_VERSION = "central-gates-2026-09-11-v2-supplement"
 GATE_COLUMNS = ["편명", "시간", "게이트", "출발지", "출구"]
@@ -211,7 +211,7 @@ def fetch_gate_payload(api_key, search_date_str):
     raise GateFetchError(" / ".join(errors) or "공항 자료를 받지 못했습니다.")
 class CentralGateHub:
     """한 서버 프로세스에 하나. 날짜별 저장소 + 수집 작업 한 개 + 잠금."""
-    def __init__(self, api_key, fetcher, refresh_seconds=300, idle_seconds=90,
+    def __init__(self, api_key, fetcher, refresh_seconds=180, idle_seconds=90,
                  clock=None, wall_clock=None):
         self._api_key = api_key
         self._fetcher = fetcher
@@ -322,31 +322,35 @@ class CentralGateHub:
 @st.cache_resource(show_spinner=False)
 def get_central_gate_hub(api_key, engine_version):
     return CentralGateHub(api_key, fetch_gate_payload, refresh_seconds=GATE_REFRESH_SECONDS)
+def configure_gate_refresh(hub, refresh_seconds):
+    """메모리에 남은 수집기도 백업을 유지한 채 새 주기로 전환합니다."""
+    with hub._lock:
+        old_seconds = hub._refresh_seconds
+        if old_seconds == refresh_seconds:
+            return
+        hub._refresh_seconds = refresh_seconds
+        now = hub._clock()
+        wall_now = hub._wall_clock()
+        for entry in hub._entries.values():
+            if entry["checked_at"] is not None and not entry["updating"]:
+                entry["next_due"] = max(now, entry["next_due"] + refresh_seconds - old_seconds)
+                entry["next_check_at"] = wall_now + timedelta(seconds=entry["next_due"] - now)
+                entry["version"] += 1
+    hub._wake.set()
+
+
 def install_shared_screen_updates(hub, search_date_str, shown_version):
     rendered_minute = datetime.now(KST).strftime("%Y%m%d%H%M")
-    fragment = getattr(st, "fragment", None) or getattr(st, "experimental_fragment", None)
-    if fragment is not None:
-        @fragment(run_every=SCREEN_CHECK_SECONDS)
-        def screen_clock():
-            # 분/날짜가 바뀌면 기존 시간 표시와 필터도 갱신합니다.
-            if datetime.now(KST).strftime("%Y%m%d%H%M") != rendered_minute:
-                st.rerun()
-            if hub is not None and hub.status(search_date_str)["version"] != shown_version:
-                st.rerun()
-        screen_clock()
-    else:
-        # 구버전 호환: 공항 재요청 없이 화면 버튼만 누릅니다.
-        st.components.v1.html("""
-        <script>
-        setInterval(function() {
-          try {
-            const b = Array.from(window.parent.document.querySelectorAll('button'))
-              .find(b => b.innerText.includes('업데이트하기'));
-            if (b) b.click();
-          } catch (e) {}
-        }, 5000);
-        </script>
-        """, height=0, width=0)
+    # 운영 버전 Streamlit 1.62.0의 자동 갱신 기능을 사용합니다.
+    @st.fragment(run_every=SCREEN_CHECK_SECONDS)
+    def screen_clock():
+        # 분/날짜가 바뀌면 기존 시간 표시와 필터도 갱신합니다.
+        if datetime.now(KST).strftime("%Y%m%d%H%M") != rendered_minute:
+            st.rerun()
+        if hub is not None and hub.status(search_date_str)["version"] != shown_version:
+            st.rerun()
+    screen_clock()
+
 if "toast_msg" in st.session_state:
     st.toast(st.session_state["toast_msg"], icon="✅")
     del st.session_state["toast_msg"]
@@ -511,12 +515,10 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
     html_parts.append('</tbody></table></div>')
     return "".join(html_parts)
 with st.sidebar:
-    st.markdown("<h3 style='margin: -10px 0px -15px 0px !important; padding: 0px !important; font-size: 19px; font-weight: bold; color: #1E3A8A;'>🔄 실시간 업데이트</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='margin: -10px 0px 8px 0px !important; padding: 0px !important; font-size: 19px; font-weight: bold; color: #1E3A8A;'>🔄 게이트 수신 상태</h3>", unsafe_allow_html=True)
     
-    st.button("🔄 업데이트하기", use_container_width=True,
-              help="서버가 받은 최신 자료를 다시 표시합니다. 공항에 추가 요청을 보내지 않습니다.")
     gate_time_placeholder = st.empty()
-    st.caption("💡 게이트는 서버에서 날짜별로 약 5분마다 갱신합니다.")
+    st.caption(f"💡 게이트는 서버에서 날짜별로 약 {GATE_REFRESH_SECONDS // 60}분마다 갱신합니다.")
     st.caption("새로 받은 게이트는 연결된 화면에 자동 반영됩니다.")
     st.divider()
     file_list_placeholder = st.container()
@@ -542,7 +544,7 @@ with st.sidebar:
     current_hour = now_kst_time.hour
     default_start_hour = max(0, current_hour - 1) if "오늘" in date_option else 0
     time_range = st.slider("조회 시간대 (시)", 0, 24, (default_start_hour, 24))
-    base_font_size = st.slider("🔠 표 글자 조절 (px)", min_value=10, max_value=17, value=13, step=1)
+    base_font_size = st.slider("🔠 표 글자 조절 (px)", min_value=10, max_value=17, value=14, step=1)
     
     st.divider()
     st.header("🛠️ 시스템 복구")
@@ -563,6 +565,7 @@ try:
     if not gate_api_key:
         raise ValueError("empty key")
     gate_hub = get_central_gate_hub(gate_api_key, GATE_ENGINE_VERSION)
+    configure_gate_refresh(gate_hub, GATE_REFRESH_SECONDS)
     gate_status = gate_hub.snapshot(api_target_date_str)
 except Exception:
     gate_status["error"] = "공항 연결 설정을 확인하지 못했습니다. 사이트의 기존 연결키 설정을 확인해 주세요."
@@ -573,7 +576,7 @@ with st.spinner("⏳ 승객 자료를 확인하는 중입니다..."):
 fetched_at = gate_status["fetched_at"]
 if fetched_at is not None:
     gate_time_placeholder.caption(f"게이트 정상 수신: {fetched_at:%Y-%m-%d %H:%M:%S}")
-    st.caption(f"게이트 정상 수신: {fetched_at:%Y-%m-%d %H:%M:%S} · 약 5분마다 갱신")
+    st.caption(f"게이트 정상 수신: {fetched_at:%Y-%m-%d %H:%M:%S} · 약 {GATE_REFRESH_SECONDS // 60}분마다 갱신")
 else:
     gate_time_placeholder.caption("게이트 자료: 첫 수신 대기 중")
 if gate_status["updating"]:
