@@ -32,6 +32,138 @@ KST = timezone(timedelta(hours=9))
 now_kst_time = datetime.now(KST)
 today_date_str = now_kst_time.strftime("%Y-%m-%d")
 tomorrow_date_str = (now_kst_time + timedelta(days=1)).strftime("%Y-%m-%d")
+# 메모리 진단: 서버 로그에만 기록하며 게이트 API나 캐시를 조작하지 않습니다.
+MEMORY_LOG_INTERVAL_SECONDS = 600  # 10분
+
+
+@st.cache_resource(show_spinner=False)
+def start_memory_monitor():
+    """서버 프로세스당 기록 작업 하나를 유지합니다."""
+    import json
+    import os
+    import uuid
+    from pathlib import Path
+
+    thread_name = "t2-memory-monitor"
+    # 캐시를 지워도 이미 실행 중인 기록 작업이 있으면 재사용합니다.
+    for worker in threading.enumerate():
+        if worker.name == thread_name and worker.is_alive():
+            return worker
+
+    interval = MEMORY_LOG_INTERVAL_SECONDS
+    run_id = uuid.uuid4().hex[:12]
+    started = time.monotonic()
+    stop_event = threading.Event()
+    kst = timezone(timedelta(hours=9))
+
+    def read_text(path):
+        try:
+            return Path(path).read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            return ""
+
+    def read_number(path):
+        value = read_text(path).strip()
+        return int(value) if value.isdigit() else None
+
+    def to_mib(value):
+        return round(value / (1024 * 1024), 2) if value is not None else None
+
+    def read_cgroup():
+        # Linux 컨테이너의 메모리 수치입니다. 앱 프로세스의 RSS와 범위가 다릅니다.
+        # 현재 프로세스의 그룹 경로를 먼저 확인하고, 컨테이너 루트 경로를 보조로 사용합니다.
+        roots = []
+        for line in read_text("/proc/self/cgroup").splitlines():
+            parts = line.split(":", 2)
+            if len(parts) != 3:
+                continue
+            relative = Path(parts[2].lstrip("/"))
+            if ".." in relative.parts:
+                continue
+            if parts[0] == "0" and parts[1] == "":
+                roots.append((Path("/sys/fs/cgroup") / relative, 2))
+            elif "memory" in parts[1].split(","):
+                roots.append((Path("/sys/fs/cgroup/memory") / relative, 1))
+        roots.extend([(Path("/sys/fs/cgroup"), 2), (Path("/sys/fs/cgroup/memory"), 1)])
+        for root, version in roots:
+            usage_name = "memory.current" if version == 2 else "memory.usage_in_bytes"
+            usage = read_number(root / usage_name)
+            if usage is None:
+                continue
+            limit_name = "memory.max" if version == 2 else "memory.limit_in_bytes"
+            limit = read_number(root / limit_name)
+            # cgroup v1은 사실상 무제한일 때 매우 큰 정수를 반환할 수 있습니다.
+            if limit is not None and limit >= (1 << 60):
+                limit = None
+            result = {"cgroup_version": version, "cgroup_usage_mib": to_mib(usage),
+                      "cgroup_limit_mib": to_mib(limit),
+                      "cgroup_usage_pct": round(usage / limit * 100, 2) if limit else None}
+            if version == 2:
+                for line in read_text(root / "memory.events").splitlines():
+                    values = line.split()
+                    if len(values) == 2 and values[0] in {"high", "max", "oom", "oom_kill"} and values[1].isdigit():
+                        result["cgroup_" + values[0]] = int(values[1])
+                for line in read_text(root / "memory.stat").splitlines():
+                    values = line.split()
+                    if len(values) == 2 and values[0] in {"anon", "file"} and values[1].isdigit():
+                        result["cgroup_" + values[0] + "_mib"] = to_mib(int(values[1]))
+            return result
+        return {"cgroup_version": None, "cgroup_usage_mib": None, "cgroup_limit_mib": None}
+
+    def run():
+        # 이 작업 안에서는 st.* 함수를 호출하지 않습니다.
+        sample = 0
+        while not stop_event.is_set():
+            try:
+                status = {}
+                for line in read_text("/proc/self/status").splitlines():
+                    key, separator, value = line.partition(":")
+                    if separator:
+                        status[key] = value.strip()
+
+                def status_mib(key):
+                    fields = status.get(key, "").split()
+                    return round(int(fields[0]) / 1024, 2) if fields and fields[0].isdigit() else None
+
+                record = {
+                    "schema": 1, "run_id": run_id, "pid": os.getpid(),
+                    "kst": datetime.now(kst).isoformat(timespec="seconds"),
+                    "sample": sample, "interval_seconds": interval,
+                    "monitor_minutes": round((time.monotonic() - started) / 60, 1),
+                    "process_rss_mib": status_mib("VmRSS"),
+                    "process_peak_rss_mib": status_mib("VmHWM"),
+                    "process_anon_mib": status_mib("RssAnon"),
+                    "process_swap_mib": status_mib("VmSwap"),
+                    "os_threads": int(status["Threads"]) if status.get("Threads", "").isdigit() else None,
+                    "python_threads": threading.active_count(),
+                }
+                record.update(read_cgroup())
+                # 기록을 메모리에 쌓지 않고 한 줄씩 서버 로그로 내보냅니다.
+                print("[T2_MEMORY] " + json.dumps(record, ensure_ascii=True, separators=(",", ":")), flush=True)
+            except Exception as exc:
+                # 경로·키·승객 자료가 오류 문자열에 노출되지 않도록 유형만 기록합니다.
+                try:
+                    print("[T2_MEMORY_ERROR] " + type(exc).__name__, flush=True)
+                except Exception:
+                    pass
+            sample += 1
+            stop_event.wait(interval)
+
+    worker = threading.Thread(target=run, name=thread_name, daemon=True)
+    worker.start()
+    return worker
+
+
+# 첫 화면 접속 시 시작하며, 이후 서버가 실행되는 동안 10분마다 기록합니다.
+try:
+    _memory_monitor = start_memory_monitor()
+except Exception as exc:
+    # 진단 작업 시작 실패가 표 표시를 막지 않도록 합니다.
+    try:
+        print("[T2_MEMORY_START_ERROR] " + type(exc).__name__, flush=True)
+    except Exception:
+        pass
+
 # 새벽 1시 강제 초기화는 사용하지 않습니다.
 SHEET_NAME = "보안검색_데이터_공유"
 # 각 화면은 아래의 공유 상태 확인기로 갱신됩니다.
@@ -518,7 +650,7 @@ with st.sidebar:
     st.markdown("<h3 style='margin: -10px 0px 8px 0px !important; padding: 0px !important; font-size: 19px; font-weight: bold; color: #1E3A8A;'>🔄 게이트 수신 상태</h3>", unsafe_allow_html=True)
     
     gate_time_placeholder = st.empty()
-    st.caption(f"💡 게이트는 서버에서 약 {GATE_REFRESH_SECONDS // 60}분마다 갱신합니다.")
+    st.caption(f"💡 게이트는 서버에서 날짜별로 약 {GATE_REFRESH_SECONDS // 60}분마다 갱신합니다.")
     st.caption("새로 받은 게이트는 연결된 화면에 자동 반영됩니다.")
     st.divider()
     file_list_placeholder = st.container()
