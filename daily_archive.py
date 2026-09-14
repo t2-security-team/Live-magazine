@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import re
+import sys
 import threading
 from datetime import date, datetime, timedelta, timezone
 from itertools import zip_longest
@@ -36,7 +37,7 @@ ARCHIVE_THREAD_NAME = "t2-daily-pdf-archive"
 ARCHIVE_RETRY_SECONDS = 300
 ARCHIVE_START_DELAY_SECONDS = 20
 GATE_COLUMNS = ["편명", "시간", "게이트", "출발지", "출구"]
-_worker_lock = threading.Lock()
+_worker_lock = sys.__dict__.setdefault("_t2_daily_archive_lock", threading.Lock())
 _worker: threading.Thread | None = None
 
 
@@ -49,6 +50,8 @@ def _clean_flight_no(value: Any) -> str:
 
 
 def _format_route(value: Any) -> str:
+    if pd.isna(value):
+        return ""
     text = str(value or "").strip()
     return text.upper() if len(text) == 3 and text.isalpha() else text
 
@@ -191,6 +194,7 @@ def _load_pax_data(gcp_info: dict[str, Any], sheet_name: str, archive_date: date
     if data.empty:
         raise RuntimeError("passenger data for today is not ready")
     data["편명"] = data["편명"].apply(_clean_flight_no)
+    data = data[data["편명"] != ""]
     return data.drop_duplicates(["편명"])
 
 
@@ -409,6 +413,9 @@ def start_daily_archive_worker(
 ) -> threading.Thread:
     global _worker
     with _worker_lock:
+        existing = getattr(sys, "_t2_daily_archive_worker", None)
+        if existing is not None and existing.is_alive():
+            return existing
         if _worker is not None and _worker.is_alive():
             return _worker
 
@@ -437,5 +444,6 @@ def start_daily_archive_worker(
                 threading.Event().wait(wait_seconds)
 
         _worker = threading.Thread(target=run, name=ARCHIVE_THREAD_NAME, daemon=True)
+        sys._t2_daily_archive_worker = _worker
         _worker.start()
         return _worker
