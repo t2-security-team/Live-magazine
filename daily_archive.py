@@ -206,7 +206,7 @@ def build_archive_frame(pax_data: pd.DataFrame, gate_data: pd.DataFrame) -> pd.D
     final["출발지"] = final["출발지"].apply(_format_route)
     final = final[~final["출발지"].astype(str).str.contains("PUS|김해|부산", case=False, na=False)]
     final["시간"] = final["시간"].fillna("미확인")
-    final["승객수"] = pd.to_numeric(final["승객수"].astype(str).str.replace(",", "", regex=False), errors="raise").astype(int)
+    final["승객수"] = pd.to_numeric(final["승객수"].astype(str).str.replace(",", "", regex=False), errors="raise").astype("Int64")
     gate_numbers = pd.to_numeric(final["게이트"], errors="coerce")
     valid = gate_numbers.notna() & (gate_numbers > 0)
     final["게이트"] = gate_numbers.where(valid).fillna(0).astype(int).astype(str).replace("0", "-")
@@ -276,8 +276,8 @@ def build_daily_pdf(data: pd.DataFrame, archive_date: date, generated_at: dateti
         columns + columns,
     ]
     for east_row, west_row in zip_longest(east, west, fillvalue=["", "", "", "", ""]):
-        left = [f"{value:,}" if isinstance(value, int) else str(value) for value in east_row]
-        right = [f"{value:,}" if isinstance(value, int) else str(value) for value in west_row]
+        left = ["" if pd.isna(value) else f"{value:,}" if isinstance(value, int) else str(value) for value in east_row]
+        right = ["" if pd.isna(value) else f"{value:,}" if isinstance(value, int) else str(value) for value in west_row]
         rows.append(left + right)
 
     available = page_width - 20 * mm
