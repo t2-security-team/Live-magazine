@@ -19,7 +19,7 @@ from google.oauth2.credentials import Credentials as UserCredentials
 from google.oauth2.service_account import Credentials as ServiceCredentials
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
-from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
@@ -224,53 +224,59 @@ def build_archive_frame(pax_data: pd.DataFrame, gate_data: pd.DataFrame) -> pd.D
 def build_daily_pdf(data: pd.DataFrame, archive_date: date, generated_at: datetime) -> bytes:
     buffer = io.BytesIO()
     pdfmetrics.registerFont(UnicodeCIDFont("HYSMyeongJo-Medium"))
-    page_width, _ = landscape(A4)
+    page_width, _ = A4
     document = SimpleDocTemplate(
         buffer,
-        pagesize=landscape(A4),
-        rightMargin=10 * mm,
-        leftMargin=10 * mm,
-        topMargin=10 * mm,
-        bottomMargin=10 * mm,
-        title=f"T2 보안검색 환승부 잡지 {archive_date.isoformat()}",
+        pagesize=A4,
+        rightMargin=9 * mm,
+        leftMargin=9 * mm,
+        topMargin=8 * mm,
+        bottomMargin=9 * mm,
+        title=archive_date.isoformat(),
         author="T2 잡지 PDF 자동저장",
     )
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        "KoreanTitle",
-        parent=styles["Title"],
-        fontName="HYSMyeongJo-Medium",
-        fontSize=17,
-        leading=21,
-        alignment=TA_CENTER,
-        textColor=colors.HexColor("#1E3A8A"),
-        spaceAfter=3 * mm,
-    )
     meta_style = ParagraphStyle(
         "KoreanMeta",
         parent=styles["Normal"],
         fontName="HYSMyeongJo-Medium",
-        fontSize=8.5,
-        leading=11,
-        alignment=TA_CENTER,
-        textColor=colors.HexColor("#334155"),
+        fontSize=5.8,
+        leading=7,
+        alignment=0,
+        textColor=colors.HexColor("#64748B"),
     )
     total = int(data["승객수"].sum())
     airline_totals = {
         code: int(data.loc[data["편명"].astype(str).str.startswith(code), "승객수"].sum())
         for code in ("KE", "OZ", "DL")
     }
-    story = [
-        Paragraph("T2 보안검색 환승부 잡지", title_style),
-        Paragraph(
-            f"대상일: {archive_date:%Y-%m-%d} | "
-            f"생성시각(KST): {generated_at:%Y-%m-%d %H:%M:%S} | "
-            f"총 승객수: {total:,}명 | "
-            f"KE {airline_totals['KE']:,} / OZ {airline_totals['OZ']:,} / DL {airline_totals['DL']:,}",
-            meta_style,
-        ),
-        Spacer(1, 4 * mm),
-    ]
+    story = [Paragraph(f"게이트 최종 수신 기준 · PDF 생성 {generated_at:%Y-%m-%d %H:%M:%S} (KST)", meta_style), Spacer(1, 2 * mm)]
+
+    summary = Table(
+        [
+            [f"총 승객수: {total:,}명", f"{archive_date:%Y년 %m월 %d일}"],
+            [f"KE: {airline_totals['KE']:,}명    OZ: {airline_totals['OZ']:,}명    DL: {airline_totals['DL']:,}명", ""],
+        ],
+        colWidths=[120 * mm, 72 * mm],
+        rowHeights=[7 * mm, 6 * mm],
+    )
+    summary.setStyle(
+        TableStyle(
+            [
+                ("FONTNAME", (0, 0), (-1, -1), "HYSMyeongJo-Medium"),
+                ("FONTSIZE", (0, 0), (-1, 0), 8),
+                ("FONTSIZE", (0, 1), (-1, 1), 6.3),
+                ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#1E3A8A")),
+                ("ALIGN", (0, 0), (0, -1), "CENTER"),
+                ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+                ("SPAN", (0, 1), (1, 1)),
+                ("BOX", (0, 0), (-1, 0), 0.7, colors.HexColor("#6EA8FE")),
+                ("BOX", (0, 1), (-1, 1), 0.7, colors.HexColor("#6EA8FE")),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ]
+        )
+    )
+    story.extend([summary, Spacer(1, 2.5 * mm)])
 
     columns = ["시간", "편명", "출발지", "게이트", "승객수"]
     east = data[data["구역"] == "동편"][columns].values.tolist()
@@ -284,30 +290,30 @@ def build_daily_pdf(data: pd.DataFrame, archive_date: date, generated_at: dateti
         right = ["" if pd.isna(value) else f"{value:,}" if isinstance(value, int) else str(value) for value in west_row]
         rows.append(left + right)
 
-    available = page_width - 20 * mm
-    widths = [16, 19, 29, 16, 18, 16, 19, 29, 16, 18]
+    available = page_width - 18 * mm
+    widths = [11, 15, 23, 12, 11, 11, 15, 23, 12, 11]
     scale = available / (sum(widths) * mm)
     table = Table(rows, colWidths=[width * mm * scale for width in widths], repeatRows=2)
     table.setStyle(
         TableStyle(
             [
                 ("FONTNAME", (0, 0), (-1, -1), "HYSMyeongJo-Medium"),
-                ("FONTSIZE", (0, 0), (-1, -1), 7.5),
-                ("LEADING", (0, 0), (-1, -1), 9.5),
+                ("FONTSIZE", (0, 0), (-1, -1), 5.5),
+                ("LEADING", (0, 0), (-1, -1), 6.5),
                 ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ("SPAN", (0, 0), (4, 0)),
                 ("SPAN", (5, 0), (9, 0)),
-                ("BACKGROUND", (0, 0), (4, 0), colors.HexColor("#DBEAFE")),
-                ("BACKGROUND", (5, 0), (9, 0), colors.HexColor("#FEE2E2")),
-                ("BACKGROUND", (0, 1), (-1, 1), colors.HexColor("#E2E8F0")),
+                ("BACKGROUND", (0, 0), (-1, 1), colors.white),
                 ("TEXTCOLOR", (0, 0), (4, 0), colors.HexColor("#1D4ED8")),
                 ("TEXTCOLOR", (5, 0), (9, 0), colors.HexColor("#B91C1C")),
-                ("FONTSIZE", (0, 0), (-1, 1), 8.5),
-                ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#94A3B8")),
-                ("ROWBACKGROUNDS", (0, 2), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
-                ("TOPPADDING", (0, 0), (-1, -1), 2.2),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 2.2),
+                ("FONTSIZE", (0, 0), (-1, 0), 7),
+                ("FONTSIZE", (0, 1), (-1, 1), 5.8),
+                ("GRID", (0, 1), (-1, -1), 0.25, colors.HexColor("#CBD5E1")),
+                ("LINEBELOW", (0, 0), (4, 0), 0.45, colors.HexColor("#93C5FD")),
+                ("LINEBELOW", (5, 0), (9, 0), 0.45, colors.HexColor("#FCA5A5")),
+                ("TOPPADDING", (0, 0), (-1, -1), 1.15),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 1.15),
             ]
         )
     )
@@ -316,8 +322,8 @@ def build_daily_pdf(data: pd.DataFrame, archive_date: date, generated_at: dateti
         canvas.saveState()
         canvas.setFont("HYSMyeongJo-Medium", 7)
         canvas.setFillColor(colors.HexColor("#64748B"))
-        canvas.drawString(10 * mm, 5 * mm, archive_date.isoformat())
-        canvas.drawRightString(page_width - 10 * mm, 5 * mm, f"{doc.page} 페이지")
+        canvas.drawString(9 * mm, 4.5 * mm, archive_date.isoformat())
+        canvas.drawRightString(page_width - 9 * mm, 4.5 * mm, f"{doc.page} 페이지")
         canvas.restoreState()
 
     document.build(story, onFirstPage=draw_footer, onLaterPages=draw_footer)
@@ -389,7 +395,7 @@ def archive_date_once(
     archive_date: date,
 ) -> bool:
     folder_id = drive_config["folder_id"]
-    filename = f"T2_보안검색_환승부_잡지_{archive_date.isoformat()}.pdf"
+    filename = f"{archive_date.isoformat()}.pdf"
     if _drive_file_exists(drive_config, folder_id, filename):
         return False
     pax_data = _load_pax_data(gcp_info, sheet_name, archive_date)
