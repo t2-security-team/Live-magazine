@@ -12,7 +12,9 @@ import xml.etree.ElementTree as ET
 from urllib.parse import unquote
 import requests
 import time
+import json
 from datetime import datetime, timedelta, timezone
+from daily_archive import start_daily_archive_worker
 st.set_page_config(page_title="T2 보안검색 환승부 잡지", layout="wide", initial_sidebar_state="collapsed")
 # Fork와 GitHub 아이콘이 있는 도구 모음만 숨깁니다.
 # 사이드바 화살표와 점 세 개 메뉴는 유지합니다.
@@ -701,6 +703,23 @@ try:
     gate_status = gate_hub.snapshot(api_target_date_str)
 except Exception:
     gate_status["error"] = "공항 연결 설정을 확인하지 못했습니다. 사이트의 기존 연결키 설정을 확인해 주세요."
+
+# 매일 KST 자정 이후 오늘 날짜 전체 표를 PDF로 한 번만 Drive에 보관합니다.
+# 앱이 자정에 재시작되어도 파일이 없으면 다음 실행 때 자동으로 보완합니다.
+try:
+    drive_archive_config = dict(st.secrets["drive_archive"])
+    drive_archive_config.setdefault("folder_id", "18yjD5tab7CNztMKbFow1GhRdB4yoWG6R")
+    _daily_archive_worker = start_daily_archive_worker(
+        json.dumps(dict(st.secrets["gcp"])),
+        gate_api_key,
+        json.dumps(drive_archive_config),
+        SHEET_NAME,
+    )
+except Exception as exc:
+    try:
+        print("[T2_DAILY_PDF_START_ERROR] " + type(exc).__name__, flush=True)
+    except Exception:
+        pass
 df_g = gate_status["data"]
 with st.spinner("⏳ 승객 자료를 확인하는 중입니다..."):
     full_pax_df = load_pax_data()
