@@ -210,7 +210,7 @@ def build_archive_frame(pax_data: pd.DataFrame, gate_data: pd.DataFrame) -> pd.D
     final["출발지"] = final["출발지"].apply(_format_route)
     final = final[~final["출발지"].astype(str).str.contains("PUS|김해|부산", case=False, na=False)]
     final["시간"] = final["시간"].fillna("미확인")
-    final["승객수"] = pd.to_numeric(final["승객수"].astype(str).str.replace(",", "", regex=False), errors="raise").astype("Int64")
+    final["승객수"] = pd.to_numeric(final["승객수"].astype(str).str.replace(",", "", regex=False), errors="coerce").fillna(0).astype("Int64")
     gate_numbers = pd.to_numeric(final["게이트"], errors="coerce")
     valid = gate_numbers.notna() & (gate_numbers > 0)
     final["게이트"] = gate_numbers.where(valid).fillna(0).astype(int).astype(str).replace("0", "-")
