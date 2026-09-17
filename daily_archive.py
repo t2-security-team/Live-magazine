@@ -429,7 +429,10 @@ def archive_date_once(
     gate_data = _fetch_gate_data(gate_api_key, archive_date)
     archive_frame = build_archive_frame(pax_data, gate_data)
     baseline = midnight_times(gcp_info, sheet_name, archive_date, gate_api_key)
-    archive_frame["도착시간"] = archive_frame["편명"].map(baseline).fillna("-")
+    arrivals = archive_frame["편명"].map(baseline)
+    if arrivals.isna().any() or arrivals.astype(str).str.strip().eq("").any():
+        raise RuntimeError("midnight arrival times incomplete; report withheld")
+    archive_frame["도착시간"] = arrivals
     archive_frame["변경시간"] = archive_frame["시간"].replace("미확인", "-")
     generated_at = datetime.now(KST)
     pdf_bytes = build_daily_pdf(archive_frame, archive_date, generated_at)
