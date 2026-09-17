@@ -236,7 +236,7 @@ def midnight_times(gcp_info, sheet_name, day, api_key):
         return saved
     now = datetime.now(KST)
     # Never label a daytime observation as the midnight baseline.
-    if now.date() != day or now.hour != 0:
+    if now.date() != day or now.hour not in (0, 1, 2):
         return {}
     gates = _fetch_gate_data(api_key, day).drop_duplicates("편명")
     values = [[day.isoformat(), r["편명"], r["시간"], now.isoformat()]
@@ -460,11 +460,14 @@ def start_daily_archive_worker(
         def run() -> None:
             last_success: date | None = None
             baseline_day: date | None = None
+            baseline_attempt = None
             threading.Event().wait(ARCHIVE_START_DELAY_SECONDS)
             while True:
                 now = datetime.now(KST)
                 today = now.date()
-                if now.hour == 0 and baseline_day != today:
+                attempt = (today, now.hour)
+                if now.hour in (0, 1, 2) and baseline_day != today and baseline_attempt != attempt:
+                    baseline_attempt = attempt
                     try:
                         midnight_times(gcp_info, sheet_name, today, gate_api_key)
                         baseline_day = today
@@ -482,6 +485,8 @@ def start_daily_archive_worker(
                 next_midnight = datetime.combine(now.date() + timedelta(days=1), datetime.min.time(), KST)
                 evening = now.replace(hour=21, minute=0, second=0, microsecond=0)
                 target = evening if now < evening else next_midnight
+                if baseline_day != now.date() and now.hour < 2:
+                    target = min(target, now.replace(hour=now.hour + 1, minute=0, second=0, microsecond=0))
                 wait_seconds = max(1, min(ARCHIVE_RETRY_SECONDS, (target - now).total_seconds()))
                 threading.Event().wait(wait_seconds)
 
