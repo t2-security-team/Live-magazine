@@ -221,6 +221,33 @@ def build_archive_frame(pax_data: pd.DataFrame, gate_data: pd.DataFrame) -> pd.D
     return final.sort_values(["구역", "시간", "편명"]).reset_index(drop=True)
 
 
+def midnight_times(gcp_info, sheet_name, day, api_key):
+    """Persist the first midnight-window observation outside server memory."""
+    creds = ServiceCredentials.from_service_account_info(gcp_info, scopes=SHEET_SCOPES)
+    book = gspread.authorize(creds).open(sheet_name)
+    try:
+        sheet = book.worksheet("archive_midnight_times")
+    except gspread.WorksheetNotFound:
+        sheet = book.add_worksheet(title="archive_midnight_times", rows=1000, cols=4)
+        sheet.append_row(["date", "flight", "arrival", "captured_at"])
+    rows = sheet.get_all_values()[1:]
+    saved = {r[1]: r[2] for r in rows if len(r) >= 3 and r[0] == day.isoformat()}
+    if saved:
+        return saved
+    now = datetime.now(KST)
+    # Never label a daytime observation as the midnight baseline.
+    if now.date() != day or now.hour != 0:
+        return {}
+    gates = _fetch_gate_data(api_key, day).drop_duplicates("편명")
+    values = [[day.isoformat(), r["편명"], r["시간"], now.isoformat()]
+              for r in gates.to_dict("records") if r["시간"]]
+    if not values:
+        raise RuntimeError("midnight flight data is not ready")
+    sheet.append_rows(values, value_input_option="RAW")
+    return {r[1]: r[2] for r in values}
+
+
+
 def build_daily_pdf(data: pd.DataFrame, archive_date: date, generated_at: datetime) -> bytes:
     buffer = io.BytesIO()
     pdfmetrics.registerFont(UnicodeCIDFont("HYSMyeongJo-Medium"))
@@ -278,20 +305,20 @@ def build_daily_pdf(data: pd.DataFrame, archive_date: date, generated_at: dateti
     )
     story.extend([summary, Spacer(1, 2.5 * mm)])
 
-    columns = ["시간", "편명", "출발지", "게이트", "승객수"]
+    columns = ["도착시간", "변경시간", "편명", "출발지", "게이트", "승객수"]
     east = data[data["구역"] == "동편"][columns].values.tolist()
     west = data[data["구역"] == "서편"][columns].values.tolist()
     rows = [
-        ["동편", "", "", "", "", "서편", "", "", "", ""],
+        ["동편", "", "", "", "", "", "서편", "", "", "", "", ""],
         columns + columns,
     ]
-    for east_row, west_row in zip_longest(east, west, fillvalue=["", "", "", "", ""]):
+    for east_row, west_row in zip_longest(east, west, fillvalue=[""] * 6):
         left = ["" if pd.isna(value) else f"{value:,}" if isinstance(value, int) else str(value) for value in east_row]
         right = ["" if pd.isna(value) else f"{value:,}" if isinstance(value, int) else str(value) for value in west_row]
         rows.append(left + right)
 
     available = page_width - 18 * mm
-    widths = [11, 15, 23, 12, 11, 11, 15, 23, 12, 11]
+    widths = [13, 13, 15, 23, 12, 11] * 2
     scale = available / (sum(widths) * mm)
     table = Table(rows, colWidths=[width * mm * scale for width in widths], repeatRows=2)
     table.setStyle(
@@ -302,16 +329,16 @@ def build_daily_pdf(data: pd.DataFrame, archive_date: date, generated_at: dateti
                 ("LEADING", (0, 0), (-1, -1), 6.5),
                 ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("SPAN", (0, 0), (4, 0)),
-                ("SPAN", (5, 0), (9, 0)),
+                ("SPAN", (0, 0), (5, 0)),
+                ("SPAN", (6, 0), (11, 0)),
                 ("BACKGROUND", (0, 0), (-1, 1), colors.white),
-                ("TEXTCOLOR", (0, 0), (4, 0), colors.HexColor("#1D4ED8")),
-                ("TEXTCOLOR", (5, 0), (9, 0), colors.HexColor("#B91C1C")),
+                ("TEXTCOLOR", (0, 0), (5, 0), colors.HexColor("#1D4ED8")),
+                ("TEXTCOLOR", (6, 0), (11, 0), colors.HexColor("#B91C1C")),
                 ("FONTSIZE", (0, 0), (-1, 0), 7),
                 ("FONTSIZE", (0, 1), (-1, 1), 5.8),
                 ("GRID", (0, 1), (-1, -1), 0.25, colors.HexColor("#CBD5E1")),
-                ("LINEBELOW", (0, 0), (4, 0), 0.45, colors.HexColor("#93C5FD")),
-                ("LINEBELOW", (5, 0), (9, 0), 0.45, colors.HexColor("#FCA5A5")),
+                ("LINEBELOW", (0, 0), (5, 0), 0.45, colors.HexColor("#93C5FD")),
+                ("LINEBELOW", (6, 0), (11, 0), 0.45, colors.HexColor("#FCA5A5")),
                 ("TOPPADDING", (0, 0), (-1, -1), 1.15),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 1.15),
             ]
@@ -399,12 +426,11 @@ def archive_date_once(
     if _drive_file_exists(drive_config, folder_id, filename):
         return False
     pax_data = _load_pax_data(gcp_info, sheet_name, archive_date)
-    try:
-        gate_data = _fetch_gate_data(gate_api_key, archive_date)
-    except Exception:
-        # Passenger evidence must still be archived when the live airport API is unavailable.
-        gate_data = pd.DataFrame(columns=GATE_COLUMNS)
+    gate_data = _fetch_gate_data(gate_api_key, archive_date)
     archive_frame = build_archive_frame(pax_data, gate_data)
+    baseline = midnight_times(gcp_info, sheet_name, archive_date, gate_api_key)
+    archive_frame["도착시간"] = archive_frame["편명"].map(baseline).fillna("-")
+    archive_frame["변경시간"] = archive_frame["시간"].replace("미확인", "-")
     generated_at = datetime.now(KST)
     pdf_bytes = build_daily_pdf(archive_frame, archive_date, generated_at)
     _upload_pdf(drive_config, folder_id, filename, pdf_bytes)
@@ -430,11 +456,19 @@ def start_daily_archive_worker(
 
         def run() -> None:
             last_success: date | None = None
+            baseline_day: date | None = None
             threading.Event().wait(ARCHIVE_START_DELAY_SECONDS)
             while True:
                 now = datetime.now(KST)
                 today = now.date()
-                if last_success != today:
+                if now.hour == 0 and baseline_day != today:
+                    try:
+                        midnight_times(gcp_info, sheet_name, today, gate_api_key)
+                        baseline_day = today
+                        print(f"[T2_MIDNIGHT] saved {today.isoformat()}", flush=True)
+                    except Exception as exc:
+                        print(f"[T2_MIDNIGHT_ERROR] {type(exc).__name__}", flush=True)
+                if now.hour >= 21 and last_success != today:
                     try:
                         archive_date_once(gcp_info, gate_api_key, drive_config, sheet_name, today)
                         last_success = today
@@ -443,10 +477,9 @@ def start_daily_archive_worker(
                         print(f"[T2_DAILY_PDF_ERROR] {today.isoformat()} {type(exc).__name__}", flush=True)
                 now = datetime.now(KST)
                 next_midnight = datetime.combine(now.date() + timedelta(days=1), datetime.min.time(), KST)
-                if last_success == now.date():
-                    wait_seconds = max(1, (next_midnight - now).total_seconds())
-                else:
-                    wait_seconds = ARCHIVE_RETRY_SECONDS
+                evening = now.replace(hour=21, minute=0, second=0, microsecond=0)
+                target = evening if now < evening else next_midnight
+                wait_seconds = max(1, min(ARCHIVE_RETRY_SECONDS, (target - now).total_seconds()))
                 threading.Event().wait(wait_seconds)
 
         _worker = threading.Thread(target=run, name=ARCHIVE_THREAD_NAME, daemon=True)
