@@ -547,7 +547,7 @@ with st.sidebar:
     base_font_size = st.slider("🔠 표 글자 조절 (px)", min_value=10, max_value=17, value=14, step=1)
     
     st.divider()
-    st.header("🛠️ 시스템 복구")
+    st.header("🛠️ 익일 승객 수 안뜨면 눌러주세요")
     if st.button("🔌 승객 자료 연결 다시 시도", use_container_width=True, type="secondary"):
         load_pax_data.clear()
         load_file_list.clear()
