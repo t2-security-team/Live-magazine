@@ -400,7 +400,7 @@ def clean_flight_no(val):
     if match: return f"{match.group(1)}{int(match.group(2)):03d}"
     return val
 IATA_CITY_MAP = {
-    "LIS": "리스본", "HFE": "허페이", "KUH": "쿠시로", "KIX": "오사카/간사이", "NRT": "나리타", "HKG": "홍콩", 
+    "LIS": "리스본", "HFE": "허페이", "KUH": "쿠시로", "KIX": "간사이", "NRT": "나리타", "HKG": "홍콩", 
     "TSN": "톈진", "CTS": "삿포로", "MFM": "마카오", "AKL": "오클랜드", "UKB": "고베", "KOJ": "가고시마",
     "DLC": "다롄", "LHR": "런던", "BUD": "부다페스트", "CDG": "파리", "PEK": "베이징", "NGO": "나고야", 
     "YNZ": "옌청", "PVG": "상하이/푸동", "CGQ": "창춘", "KIJ": "니가타", "LAX": "로스앤젤레스", "HND": "하네다",
