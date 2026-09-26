@@ -515,12 +515,6 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
     html_parts.append('</tbody></table></div>')
     return "".join(html_parts)
 with st.sidebar:
-    st.markdown("<h3 style='margin: -10px 0px 8px 0px !important; padding: 0px !important; font-size: 19px; font-weight: bold; color: #1E3A8A;'>🔄 게이트 수신 상태</h3>", unsafe_allow_html=True)
-    
-    gate_time_placeholder = st.empty()
-    st.caption(f"💡 게이트는 서버에서 약 {GATE_REFRESH_SECONDS // 60}분마다 갱신합니다.")
-    st.caption("새로 받은 게이트는 연결된 화면에 자동 반영됩니다.")
-    st.divider()
     file_list_placeholder = st.container()
     st.divider()
     today_ui_str = f"오늘 ({now_kst_time.strftime('%y')}년 {now_kst_time.month}월 {now_kst_time.day}일)"
@@ -575,10 +569,7 @@ with st.spinner("⏳ 승객 자료를 확인하는 중입니다..."):
     full_files_df = load_file_list()
 fetched_at = gate_status["fetched_at"]
 if fetched_at is not None:
-    gate_time_placeholder.caption(f"게이트 정상 수신: {fetched_at:%Y-%m-%d %H:%M:%S}")
     st.caption(f"게이트 정상 수신: {fetched_at:%Y-%m-%d %H:%M:%S} · 약 {GATE_REFRESH_SECONDS // 60}분마다 갱신")
-else:
-    gate_time_placeholder.caption("게이트 자료: 첫 수신 대기 중")
 if gate_status["updating"]:
     if df_g.empty:
         st.info("⏳ 공항에서 첫 게이트 자료를 받고 있습니다. 받는 즉시 자동으로 표시합니다.")
