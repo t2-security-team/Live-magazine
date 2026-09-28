@@ -84,8 +84,14 @@ def load_pax_data():
 # 이 작업 스레드에서는 st.* 함수를 호출하지 않습니다.
 GATE_REFRESH_SECONDS = 180
 SCREEN_CHECK_SECONDS = 2
-GATE_ENGINE_VERSION = "central-gates-2026-09-11-v2-supplement"
-GATE_COLUMNS = ["편명", "시간", "게이트", "출발지", "출구"]
+GATE_ENGINE_VERSION = "central-gates-2026-09-28-v3-status"
+GATE_COLUMNS = ["편명", "시간", "게이트", "출발지", "출구", "운항상태"]
+# 결항·회항 편은 게이트 칸에 상태를 표시하고 합계에서 제외합니다.
+def cancel_status(value):
+    text = str(value or "").strip().upper()
+    if "결항" in text or "CANCEL" in text: return "결항"
+    if "회항" in text or "DIVERT" in text: return "회항"
+    return ""
 class GateFetchError(Exception):
     """화면에 표시할 수 있는 비밀키 없는 오류입니다."""
 def parse_gate_xml(xml_text):
@@ -134,8 +140,12 @@ def parse_gate_xml(xml_text):
         rows.append({"편명": flight, "시간": formatted_time,
                      "게이트": pick("gateNumber", "fstandPosition"),
                      "출발지": pick("airportCode", "airport"),
-                     "출구": pick("exitNumber")})
-    return pd.DataFrame(rows, columns=GATE_COLUMNS).drop_duplicates().reset_index(drop=True)
+                     "출구": pick("exitNumber"),
+                     "운항상태": pick("remark", "rmkKor", "rmkEng")})
+    # 행 구성은 기존과 같게 유지합니다(운항상태 때문에 같은 편이 늘어나지 않게).
+    return (pd.DataFrame(rows, columns=GATE_COLUMNS)
+            .drop_duplicates(subset=["편명", "시간", "게이트", "출발지", "출구"])
+            .reset_index(drop=True))
 def valid_gate_numbers(data):
     numbers = pd.to_numeric(data["게이트"], errors="coerce")
     return numbers.where((numbers > 0) & (numbers < float("inf")) & (numbers % 1 == 0))
@@ -472,6 +482,7 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
         row_style_css, text_style = "", ""
         
         is_past_20_mins, is_blinking, is_landing, is_landed = False, False, False, False
+        cancel_text = str(row.get('취소표시', '') or '')
         
         try:
             time_parts = str(row['시간']).split(':')
@@ -483,9 +494,14 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
                 elif 10 <= diff_mins < 20: is_landed = True        
         except: pass
             
+        if cancel_text:
+            is_blinking, is_landing, is_landed = False, False, False
         if is_past_20_mins:
             text_style = " text-decoration: line-through; text-decoration-color: black; color: #6B7280;"
             row_style_css = "background-color: #F9FAFB;" 
+        elif cancel_text:
+            text_style = " color: #9CA3AF;"
+            row_style_css = "background-color: #F3F4F6;"
         elif opt_incoming and is_blinking: row_style_css = "background-color: #FFFF00;"
         else:
             if opt_airline:
@@ -505,6 +521,8 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
             plane_svg = '<svg viewBox="0 0 24 24" width="16" height="15" fill="currentColor"><path d="M22,12 c0,1.1 -0.9,2 -2,2 H15 l-4,5 h-2 l2.5,-5 H6 l-2.5,2.5 H2 l1.5,-3.5 C3.2,12.7 3.2,11.3 3.5,11 L2,7.5 h1.5 l2.5,2.5 h5.5 l-2.5,-5 h2 l4,5 h5 c1.1,0 2,0.9 2,2 z" /></svg>'
             icon_div = f'<div class="icon-container"><div class="{"plane-landing" if is_landing else "plane-landed"}">{plane_svg}</div></div>'
             pax_content = f'<div class="pax-cell-container"><span>{html.escape(pax_text)}</span> {icon_div}</div>'
+        if cancel_text:
+            게이트_val = f'<span style="color: #DC2626;">{html.escape(cancel_text)}</span>'
         html_parts.append(f'<tr><td{td_style}>{시간_val}</td><td{td_style}>{편명_val}</td><td{td_style}>{출발지_val}</td><td{td_style}>{게이트_val}</td><td{td_style}>{pax_content}</td>')
         
         if current_h not in processed_hours:
@@ -564,6 +582,8 @@ try:
 except Exception:
     gate_status["error"] = "공항 연결 설정을 확인하지 못했습니다. 사이트의 기존 연결키 설정을 확인해 주세요."
 df_g = gate_status["data"]
+if "운항상태" not in df_g.columns:
+    df_g = df_g.assign(운항상태="")
 with st.spinner("⏳ 승객 자료를 확인하는 중입니다..."):
     full_pax_df = load_pax_data()
     full_files_df = load_file_list()
@@ -634,6 +654,8 @@ else:
             final['승객수'] = 0
             
         final['p_val'] = pd.to_numeric(final['승객수'], errors='coerce').fillna(0).astype(int)
+        final['취소표시'] = final['운항상태'].apply(cancel_status) if '운항상태' in final.columns else ""
+        final.loc[final['취소표시'] != "", 'p_val'] = 0
         
         def format_pax_display(val):
             if pd.isna(val) or str(val).strip() == '': return ""
@@ -668,6 +690,7 @@ else:
         
         final['구역'] = np.where(cond_gnum_valid, np.where(cond_west_gate, '서편', '동편'), np.where(cond_exit_A, '서편', '동편'))
         final['게이트'] = np.where(cond_gnum_valid, final['g_num'].astype(int).astype(str), '-')
+        if '취소표시' not in final.columns: final['취소표시'] = ""
         
         total_p = final['p_val'].sum()
         def c_sum(c): return final[final['편명'].str.startswith(c, na=False)]['p_val'].sum()
