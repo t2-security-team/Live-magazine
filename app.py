@@ -92,6 +92,12 @@ def cancel_status(value):
     if "결항" in text or "CANCEL" in text: return "결항"
     if "회항" in text or "DIVERT" in text: return "회항"
     return ""
+# 공항이 보내는 실제 상태로 비행기 표시를 정합니다. 상태가 없으면 기존 시간 기준을 씁니다.
+def arrival_phase(value):
+    text = str(value or "").strip().upper()
+    if "착륙" in text or "LANDED" in text: return "landing"
+    if "도착" in text or "ARRIVED" in text: return "landed"
+    return ""
 class GateFetchError(Exception):
     """화면에 표시할 수 있는 비밀키 없는 오류입니다."""
 def parse_gate_xml(xml_text):
@@ -494,6 +500,11 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
                 elif 10 <= diff_mins < 20: is_landed = True        
         except: pass
             
+        phase = arrival_phase(row.get('운항상태', ''))
+        if phase and not is_past_20_mins:
+            is_landing, is_landed = (phase == "landing"), (phase == "landed")
+            # 착륙 중일 때만 형광 강조합니다(시간 기준과 같은 의미).
+            is_blinking = is_landing
         if cancel_text:
             is_blinking, is_landing, is_landed = False, False, False
         if is_past_20_mins:
