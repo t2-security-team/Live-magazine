@@ -464,10 +464,11 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
     
     html_parts.append("""
     <style>
-    .icon-container { position: absolute; right: 2px; width: 28px; height: 16px; border-bottom: 1.5px solid #333333; overflow: hidden; }
-    .plane-landing { position: absolute; bottom: 0.5px; color: #333333; animation: landing-anim 2.5s ease-in-out infinite; }
+    .icon-container { position: absolute; right: 2px; width: 28px; height: 18px; border-bottom: 1.5px solid #333333; overflow: hidden; }
+    .icon-container svg { display: block; }
+    .plane-landing { position: absolute; bottom: 0.5px; line-height: 0; color: #333333; animation: landing-anim 2.5s ease-in-out infinite; }
     @keyframes landing-anim { 0% { transform: translate(-15px, -12px) rotate(25deg); } 35% { transform: translate(1px, 0px) rotate(0deg); } 70% { transform: translate(12px, 0px) rotate(0deg); } 100% { transform: translate(27px, 0px) rotate(0deg); } }
-    .plane-landed { position: absolute; bottom: 0.5px; left: 50%; transform: translateX(-50%); color: #333333; }
+    .plane-landed { position: absolute; bottom: 0.5px; line-height: 0; left: 50%; transform: translateX(-50%); color: #333333; }
     .pax-cell-container { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; min-height: 20px; padding-right: 40px; }
     @media print { .icon-container { display: none !important; } }
     </style>
