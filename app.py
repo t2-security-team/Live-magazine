@@ -788,5 +788,40 @@ else:
         st.markdown(f'<div class="print-row">{e_html}{w_html}</div>', unsafe_allow_html=True)
     if final.empty:
         st.info("선택한 날짜·시간대에 표시할 항공편이 없습니다. 편명 일치 여부와 조회 시간대를 확인해 주세요.")
+# 메모리 사용량 기록: 화면에는 표시하지 않고 Streamlit 로그에만 10분마다 한 줄 남깁니다.
+# 어떤 오류가 나도 조용히 넘어가므로 홈페이지 동작에는 영향이 없습니다.
+MEMORY_LOG_SECONDS = 600
+@st.cache_resource(show_spinner=False)
+def get_memory_log_state():
+    return {"last": None, "lock": threading.Lock()}
+def log_memory_usage():
+    try:
+        state = get_memory_log_state()
+        now = time.monotonic()
+        with state["lock"]:
+            if state["last"] is not None and now - state["last"] < MEMORY_LOG_SECONDS:
+                return
+            state["last"] = now
+        mem = {}
+        try:
+            with open("/proc/self/status", encoding="utf-8") as status_file:
+                for line in status_file:
+                    key, _, value = line.partition(":")
+                    if key in ("VmRSS", "VmHWM"):
+                        mem[key] = int(value.split()[0]) // 1024
+        except Exception:
+            pass
+        sessions = "?"
+        try:
+            from streamlit.runtime import Runtime
+            sessions = Runtime.instance()._session_mgr.num_active_sessions()
+        except Exception:
+            pass
+        print(f"[메모리] {datetime.now(KST):%Y-%m-%d %H:%M:%S} 사용 {mem.get('VmRSS', '?')}MB"
+              f" · 최고 {mem.get('VmHWM', '?')}MB · 접속 화면 {sessions}개"
+              f" · 작업 {threading.active_count()}개", flush=True)
+    except Exception:
+        pass
+log_memory_usage()
 # 표를 그린 뒤에 연결합니다. 서버의 상태 번호가 바뀔 때 화면을 다시 그립니다.
 install_shared_screen_updates(gate_hub, api_target_date_str, gate_status["version"])
