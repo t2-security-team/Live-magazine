@@ -732,7 +732,7 @@ else:
             <div class="legend">
                 <div class="legend-cell legend-landing"><span class="legend-plane"><span class="moving"><svg viewBox="0 0 24 24" width="14" height="13" fill="currentColor"><path d="M22,12 c0,1.1 -0.9,2 -2,2 H15 l-4,5 h-2 l2.5,-5 H6 l-2.5,2.5 H2 l1.5,-3.5 C3.2,12.7 3.2,11.3 3.5,11 L2,7.5 h1.5 l2.5,2.5 h5.5 l-2.5,-5 h2 l4,5 h5 c1.1,0 2,0.9 2,2 z" /></svg></span></span>착륙·이동 중</div>
                 <div class="legend-cell"><span class="legend-plane"><span><svg viewBox="0 0 24 24" width="14" height="13" fill="currentColor"><path d="M22,12 c0,1.1 -0.9,2 -2,2 H15 l-4,5 h-2 l2.5,-5 H6 l-2.5,2.5 H2 l1.5,-3.5 C3.2,12.7 3.2,11.3 3.5,11 L2,7.5 h1.5 l2.5,2.5 h5.5 l-2.5,-5 h2 l4,5 h5 c1.1,0 2,0.9 2,2 z" /></svg></span></span>게이트 도착</div>
-                <div class="legend-cell"><span class="legend-strike">17:01</span>20분 경과</div>
+                <div class="legend-cell"><span class="legend-strike">00:00</span>20분 경과</div>
             </div>
             <script>
             var parentWin = window.parent; var parentDoc = parentWin.document;
