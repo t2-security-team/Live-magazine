@@ -601,7 +601,7 @@ with st.spinner("⏳ 승객 자료를 확인하는 중입니다..."):
     full_files_df = load_file_list()
 fetched_at = gate_status["fetched_at"]
 if fetched_at is not None:
-    st.caption(f"게이트 정상 수신: {fetched_at:%Y-%m-%d %H:%M:%S} · 약 {GATE_REFRESH_SECONDS // 60}분마다 갱신 · 비행기·형광 표시는 공항 실시간 상태 기준")
+    st.caption(f"게이트 정상 수신: {fetched_at:%Y-%m-%d %H:%M:%S} · 약 {GATE_REFRESH_SECONDS // 60}분마다 갱신")
 if gate_status["updating"]:
     if df_g.empty:
         st.info("⏳ 공항에서 첫 게이트 자료를 받고 있습니다. 받는 즉시 자동으로 표시합니다.")
