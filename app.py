@@ -714,9 +714,26 @@ else:
             body { margin: 0; padding: 0; overflow: hidden; display: flex; gap: 10px; }
             .custom-btn { background-color: white; border: 1px solid #dcdcdc; color: #31333f; padding: 6px 15px; font-size: 14px; border-radius: 6px; cursor: pointer; font-family: sans-serif; box-shadow: 0px 1px 3px rgba(0,0,0,0.1); }
             .custom-btn:hover { border-color: #ff4b4b; color: #ff4b4b; }
+            .legend { flex: 1; max-width: 480px; min-width: 0; height: 34px; align-self: center; display: grid; grid-template-columns: repeat(3, 1fr); margin-left: 6px; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; font-family: sans-serif; font-size: 13px; font-weight: bold; color: #31333f; }
+            .legend-cell { display: flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; overflow: hidden; border-left: 1px solid #dee2e6; padding: 0 6px; }
+            .legend-cell:first-child { border-left: none; }
+            .legend-landing { background-color: #FFFF00; }
+            .legend-plane { position: relative; display: inline-block; width: 24px; height: 15px; border-bottom: 1.5px solid #333333; overflow: hidden; color: #333333; flex: none; }
+            .legend-plane span { position: absolute; bottom: 0.5px; left: 50%; transform: translateX(-50%); line-height: 0; }
+            .legend-plane svg { display: block; }
+            .legend-plane .moving { left: 0; transform: none; animation: legend-landing 2.5s ease-in-out infinite; }
+            @keyframes legend-landing { 0% { transform: translate(-14px, -10px) rotate(25deg); } 35% { transform: translate(1px, 0px) rotate(0deg); } 70% { transform: translate(10px, 0px) rotate(0deg); } 100% { transform: translate(24px, 0px) rotate(0deg); } }
+            .legend-strike { text-decoration: line-through; color: #6B7280; }
+            @media (max-width: 900px) { .legend { font-size: 11.5px; } .legend-cell { gap: 4px; padding: 0 3px; } .legend-plane { width: 20px; } }
+            @media (max-width: 740px) { .legend { font-size: 10.5px; } .legend-cell { gap: 3px; padding: 0 2px; } .legend-plane { width: 18px; } }
             </style>
             <button class="custom-btn" onclick="window.parent.print()">📄 PDF 저장</button>
             <button class="custom-btn" onclick="takePic()" id="pic-btn">📸 전체 사진으로 저장</button>
+            <div class="legend">
+                <div class="legend-cell legend-landing"><span class="legend-plane"><span class="moving"><svg viewBox="0 0 24 24" width="14" height="13" fill="currentColor"><path d="M22,12 c0,1.1 -0.9,2 -2,2 H15 l-4,5 h-2 l2.5,-5 H6 l-2.5,2.5 H2 l1.5,-3.5 C3.2,12.7 3.2,11.3 3.5,11 L2,7.5 h1.5 l2.5,2.5 h5.5 l-2.5,-5 h2 l4,5 h5 c1.1,0 2,0.9 2,2 z" /></svg></span></span>착륙·이동 중</div>
+                <div class="legend-cell"><span class="legend-plane"><span><svg viewBox="0 0 24 24" width="14" height="13" fill="currentColor"><path d="M22,12 c0,1.1 -0.9,2 -2,2 H15 l-4,5 h-2 l2.5,-5 H6 l-2.5,2.5 H2 l1.5,-3.5 C3.2,12.7 3.2,11.3 3.5,11 L2,7.5 h1.5 l2.5,2.5 h5.5 l-2.5,-5 h2 l4,5 h5 c1.1,0 2,0.9 2,2 z" /></svg></span></span>게이트 도착</div>
+                <div class="legend-cell"><span class="legend-strike">17:01</span>20분 경과</div>
+            </div>
             <script>
             var parentWin = window.parent; var parentDoc = parentWin.document;
             function takePic() {
