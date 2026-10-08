@@ -84,8 +84,8 @@ def load_pax_data():
 # 이 작업 스레드에서는 st.* 함수를 호출하지 않습니다.
 GATE_REFRESH_SECONDS = 180
 SCREEN_CHECK_SECONDS = 2
-GATE_ENGINE_VERSION = "central-gates-2026-09-28-v3-status"
-GATE_COLUMNS = ["편명", "시간", "게이트", "출발지", "출구", "운항상태"]
+GATE_ENGINE_VERSION = "central-gates-2026-10-08-v4-airport-name"
+GATE_COLUMNS = ["편명", "시간", "게이트", "출발지", "출구", "운항상태", "공항명"]
 # 결항·회항 편은 게이트 칸에 상태를 표시하고 합계에서 제외합니다.
 def cancel_status(value):
     text = str(value or "").strip().upper()
@@ -98,9 +98,34 @@ def arrival_phase(value):
     if "착륙" in text or "LANDED" in text: return "landing"
     if "도착" in text or "ARRIVED" in text: return "landed"
     return ""
+# 공항 API의 한글 공항명입니다. 한글이 없으면 쓰지 않고, 끝에 붙은 코드는 뗍니다.
+def korean_airport_name(value):
+    text = re.sub(r"\s*\([A-Za-z]{3}\)\s*$", "", str(value or "").strip())
+    return text if re.search(r"[가-힣]", text) else ""
+# 목록(IATA_CITY_MAP)에 없어 코드만 남은 출발지에 공항 API의 한글 공항명을 붙입니다.
+def add_airport_name(route, code, name):
+    route = str(route)
+    if (isinstance(name, str) and name and re.fullmatch(r"[A-Z]{3}", route)
+            and str(code).strip().upper() == route):
+        return f"{name}({route})"
+    return route
+# 실제 공항 API 항목 이름을 API별로 한 번만 로그에 남깁니다(확인용, 화면에는 표시 안 함).
+LOGGED_API_FIELDS = set()
+def log_api_fields_once(source, fields, rows):
+    try:
+        if source in LOGGED_API_FIELDS:
+            return
+        LOGGED_API_FIELDS.add(source)
+        unknown = sorted({f"{row['출발지']}={row['공항명'] or '-'}" for row in rows
+                          if row["출발지"] and row["출발지"] not in IATA_CITY_MAP})
+        print(f"[공항 API 항목] {source or '응답'}: {', '.join(sorted(fields))}"
+              f" · 예: airport={fields.get('airport', '')!r}, airportcode={fields.get('airportcode', '')!r}"
+              f" · 목록에 없는 코드 {len(unknown)}개: {', '.join(unknown[:10]) or '없음'}", flush=True)
+    except Exception:
+        pass
 class GateFetchError(Exception):
     """화면에 표시할 수 있는 비밀키 없는 오류입니다."""
-def parse_gate_xml(xml_text):
+def parse_gate_xml(xml_text, source=""):
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError:
@@ -117,6 +142,7 @@ def parse_gate_xml(xml_text):
         safe_code = code if re.fullmatch(r"[A-Za-z0-9_-]{1,32}", code) else "확인 불가"
         raise GateFetchError(f"공항 응답 코드: {safe_code}")
     rows = []
+    sample_fields = None
     for item in root.findall(".//item"):
         fields = {child.tag: (child.text or "").strip() for child in item}
         def pick(*names):
@@ -147,7 +173,12 @@ def parse_gate_xml(xml_text):
                      "게이트": pick("gateNumber", "fstandPosition"),
                      "출발지": pick("airportCode", "airport"),
                      "출구": pick("exitNumber"),
-                     "운항상태": pick("remark", "rmkKor", "rmkEng")})
+                     "운항상태": pick("remark", "rmkKor", "rmkEng"),
+                     "공항명": korean_airport_name(pick("airport"))})
+        if sample_fields is None:
+            sample_fields = fields
+    if rows:
+        log_api_fields_once(source, sample_fields, rows)
     # 행 구성은 기존과 같게 유지합니다(운항상태 때문에 같은 편이 늘어나지 않게).
     return (pd.DataFrame(rows, columns=GATE_COLUMNS)
             .drop_duplicates(subset=["편명", "시간", "게이트", "출발지", "출구"])
@@ -190,7 +221,7 @@ def fetch_gate_payload(api_key, search_date_str):
                 if response.status_code != 200:
                     retryable = response.status_code == 429 or response.status_code >= 500
                     raise GateFetchError(f"HTTP {response.status_code}")
-                data = parse_gate_xml(response.text)
+                data = parse_gate_xml(response.text, source)
                 if not data.empty:
                     received_at = datetime.now(KST)
                     if source == "1차 API":
@@ -596,6 +627,8 @@ except Exception:
 df_g = gate_status["data"]
 if "운항상태" not in df_g.columns:
     df_g = df_g.assign(운항상태="")
+if "공항명" not in df_g.columns:
+    df_g = df_g.assign(공항명="")
 with st.spinner("⏳ 승객 자료를 확인하는 중입니다..."):
     full_pax_df = load_pax_data()
     full_files_df = load_file_list()
@@ -660,6 +693,8 @@ else:
     if '출발지' in final.columns:
         final['출발지'] = final['출발지'].apply(format_route)
         final = final[~final['출발지'].astype(str).str.contains('PUS|김해|부산', case=False, na=False)]
+        if '출발지_api' in final.columns and '공항명' in final.columns:
+            final['출발지'] = [add_airport_name(r, c, n) for r, c, n in zip(final['출발지'], final['출발지_api'], final['공항명'])]
     
     if not final.empty:
         if '승객수' not in final.columns:
