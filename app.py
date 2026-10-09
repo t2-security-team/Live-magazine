@@ -564,8 +564,11 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
         시간_val, 편명_val, 출발지_val, 게이트_val = html.escape(str(row["시간"])), html.escape(str(row["편명"])), html.escape(str(row.get("출발지", ""))), html.escape(str(row["게이트"]))
         pax_text = str(row.get("p_display", ""))
         pax_content = html.escape(pax_text)
+        need_check = bool(row.get('_확인필요', False))
         
-        if pax_text and (is_landing or is_landed):
+        if need_check:
+            pax_content = '<span style="color: #DC2626; font-size: 0.85em; white-space: nowrap;">확인필요</span>'
+        elif pax_text and (is_landing or is_landed):
             plane_svg = '<svg viewBox="0 0 24 24" width="16" height="15" fill="currentColor"><path d="M22,12 c0,1.1 -0.9,2 -2,2 H15 l-4,5 h-2 l2.5,-5 H6 l-2.5,2.5 H2 l1.5,-3.5 C3.2,12.7 3.2,11.3 3.5,11 L2,7.5 h1.5 l2.5,2.5 h5.5 l-2.5,-5 h2 l4,5 h5 c1.1,0 2,0.9 2,2 z" /></svg>'
             icon_div = f'<div class="icon-container"><div class="{"plane-landing" if is_landing else "plane-landed"}">{plane_svg}</div></div>'
             pax_content = f'<div class="pax-cell-container"><span>{html.escape(pax_text)}</span> {icon_div}</div>'
@@ -695,11 +698,13 @@ else:
         df_p['편명'] = ""
         
     df_p = df_p.drop_duplicates(['편명'])
-    # 전날 지연편(KE036Y)은 같은 번호의 승객 시트 행과 이어 표에 남기되, 승객수는 비우고 합계에서 뺍니다.
+    # 전날 지연편(KE036Y)은 같은 번호의 승객 시트 행과 이어 표에 남기되, 당일 승객수를 중복으로 쓰지 않습니다.
+    # 전날 파일은 자정에 지워지므로 승객 칸에는 '확인필요'로 표시하고 합계에서 뺍니다.
     df_g = df_g.assign(_편명키=df_g['편명'].astype(str).str.replace(r'(\d)Y$', r'\1', regex=True))
     final = pd.merge(df_g, df_p.rename(columns={'편명': '_편명키'}), on='_편명키', how='inner', suffixes=('_api', '_pax'))
+    final['_확인필요'] = final['편명'] != final['_편명키']
     if '승객수' in final.columns:
-        final.loc[final['편명'] != final['_편명키'], '승객수'] = ""
+        final.loc[final['_확인필요'], '승객수'] = ""
     final = final.drop(columns=['_편명키'])
     
     if '출발지_pax' in final.columns:
@@ -727,6 +732,7 @@ else:
             except: return ""
                 
         final['p_display'] = final['승객수'].apply(format_pax_display)
+        final.loc[final['_확인필요'], 'p_display'] = "확인필요"
         final['hour'] = final['시간'].astype(str).str.extract(r'^(\d{1,2})').fillna(0).astype(int)
         final = final[(final['hour'] >= time_range[0]) & (final['hour'] <= time_range[1])]
         
