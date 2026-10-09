@@ -84,7 +84,7 @@ def load_pax_data():
 # 이 작업 스레드에서는 st.* 함수를 호출하지 않습니다.
 GATE_REFRESH_SECONDS = 180
 SCREEN_CHECK_SECONDS = 2
-GATE_ENGINE_VERSION = "central-gates-2026-10-08-v4-airport-name"
+GATE_ENGINE_VERSION = "central-gates-2026-10-09-v5-prev-day-y"
 GATE_COLUMNS = ["편명", "시간", "게이트", "출발지", "출구", "운항상태", "공항명"]
 # 결항·회항 편은 게이트 칸에 상태를 표시하고 합계에서 제외합니다.
 def cancel_status(value):
@@ -125,7 +125,7 @@ def log_api_fields_once(source, fields, rows):
         pass
 class GateFetchError(Exception):
     """화면에 표시할 수 있는 비밀키 없는 오류입니다."""
-def parse_gate_xml(xml_text, source=""):
+def parse_gate_xml(xml_text, source="", search_date=""):
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError:
@@ -147,8 +147,13 @@ def parse_gate_xml(xml_text, source=""):
         fields = {child.tag: (child.text or "").strip() for child in item}
         def pick(*names):
             return next((fields[name.lower()] for name in names if fields.get(name.lower())), "")
-        flight = pick("flightId", "fid").upper().replace("DAL", "DL").replace("KAL", "KE").replace("AAR", "OZ")
-        flight = clean_flight_no(flight)
+        raw_flight = pick("flightId", "fid").upper().replace("DAL", "DL").replace("KAL", "KE").replace("AAR", "OZ")
+        flight = clean_flight_no(raw_flight)
+        # 전날 지연편은 편명 끝에 Y를 붙입니다(공항이 Y를 붙였거나, 예정일이 조회일보다 앞선 편).
+        schedule = pick("scheduleDateTime")
+        if (re.fullmatch(r"[A-Z]+\d+Y", raw_flight.replace(" ", ""))
+                or (search_date and re.fullmatch(r"\d{12}|\d{14}", schedule) and schedule[:8] < search_date)):
+            flight += "Y"
         if not re.fullmatch(r"(?:KE|OZ|DL)\d+[A-Z]?", flight):
             continue
         formatted_time = ""
@@ -221,7 +226,7 @@ def fetch_gate_payload(api_key, search_date_str):
                 if response.status_code != 200:
                     retryable = response.status_code == 429 or response.status_code >= 500
                     raise GateFetchError(f"HTTP {response.status_code}")
-                data = parse_gate_xml(response.text, source)
+                data = parse_gate_xml(response.text, source, search_date_str)
                 if not data.empty:
                     received_at = datetime.now(KST)
                     if source == "1차 API":
@@ -683,7 +688,12 @@ else:
         df_p['편명'] = ""
         
     df_p = df_p.drop_duplicates(['편명'])
-    final = pd.merge(df_g, df_p, on='편명', how='inner', suffixes=('_api', '_pax'))
+    # 전날 지연편(KE036Y)은 같은 번호의 승객 시트 행과 이어 표에 남기되, 승객수는 비우고 합계에서 뺍니다.
+    df_g = df_g.assign(_편명키=df_g['편명'].astype(str).str.replace(r'(\d)Y$', r'\1', regex=True))
+    final = pd.merge(df_g, df_p.rename(columns={'편명': '_편명키'}), on='_편명키', how='inner', suffixes=('_api', '_pax'))
+    if '승객수' in final.columns:
+        final.loc[final['편명'] != final['_편명키'], '승객수'] = ""
+    final = final.drop(columns=['_편명키'])
     
     if '출발지_pax' in final.columns:
         cond_empty = final['출발지_pax'].isna() | (final['출발지_pax'].astype(str).str.strip() == '')
