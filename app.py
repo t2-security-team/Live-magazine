@@ -586,7 +586,14 @@ with st.sidebar:
     today_ui_str = f"오늘 ({now_kst_time.strftime('%y')}년 {now_kst_time.month}월 {now_kst_time.day}일)"
     tomorrow_ui_str = f"내일 ({(now_kst_time + timedelta(days=1)).strftime('%y')}년 {(now_kst_time + timedelta(days=1)).month}월 {(now_kst_time + timedelta(days=1)).day}일)"
     
-    date_option = st.radio("📅 확인할 게이트 날짜 선택", [today_ui_str, tomorrow_ui_str], index=0)
+    # 주소 끝에 ?date=tomorrow 가 붙어 들어오면 '내일'로 시작합니다(그 외·읽기 실패 시 오늘).
+    date_index = 0
+    try:
+        if str(st.query_params.get("date", "")).strip().lower() == "tomorrow":
+            date_index = 1
+    except Exception:
+        date_index = 0
+    date_option = st.radio("📅 확인할 게이트 날짜 선택", [today_ui_str, tomorrow_ui_str], index=date_index)
     
     target_date = (now_kst_time + timedelta(days=1)) if "내일" in date_option else now_kst_time
     target_date_str = target_date.strftime("%Y-%m-%d")
