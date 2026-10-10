@@ -1,0 +1,9 @@
+streamlit==1.62.0
+pandas
+openpyxl
+xlrd
+lxml==6.1.1
+gspread
+google-auth
+requests
+streamlit-autorefresh
