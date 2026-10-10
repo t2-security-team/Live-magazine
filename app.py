@@ -84,7 +84,7 @@ def load_pax_data():
 # 이 작업 스레드에서는 st.* 함수를 호출하지 않습니다.
 GATE_REFRESH_SECONDS = 180
 SCREEN_CHECK_SECONDS = 2
-GATE_ENGINE_VERSION = "central-gates-2026-10-10-v5b-letter-log"
+GATE_ENGINE_VERSION = "central-gates-2026-10-10-v6-letter-pick"
 GATE_COLUMNS = ["편명", "시간", "게이트", "출발지", "출구", "운항상태", "공항명"]
 # 결항·회항 편은 게이트 칸에 상태를 표시하고 합계에서 제외합니다.
 def cancel_status(value):
@@ -162,13 +162,15 @@ def parse_gate_xml(xml_text, source="", search_date=""):
             return next((fields[name.lower()] for name in names if fields.get(name.lower())), "")
         raw_flight = pick("flightId", "fid").upper().replace("DAL", "DL").replace("KAL", "KE").replace("AAR", "OZ")
         flight = clean_flight_no(raw_flight)
-        # 전날 지연편은 편명 끝에 Y를 붙입니다(공항이 Y를 붙였거나, 예정일이 조회일보다 앞선 편).
+        # 지연편은 공항이 붙여 보낸 끝 알파벳(Y·D 등)을 그대로 둡니다. 예정일이 조회일보다 앞선 편은 Y를 붙입니다.
         schedule = pick("scheduleDateTime")
         if (re.search(r"\d[A-Z]$", raw_flight.replace(" ", ""))
                 or (search_date and re.fullmatch(r"\d{12}|\d{14}", schedule) and schedule[:8] < search_date)):
             letter_flights.append(f"{raw_flight}(예정 {schedule or '-'}·변경 {pick('estimatedDateTime') or '-'})")
-        if (re.fullmatch(r"[A-Z]+\d+Y", raw_flight.replace(" ", ""))
-                or (search_date and re.fullmatch(r"\d{12}|\d{14}", schedule) and schedule[:8] < search_date)):
+        letter = re.fullmatch(r"[A-Z]+\d+([A-Z])", raw_flight.replace(" ", ""))
+        if letter:
+            flight += letter.group(1)
+        elif search_date and re.fullmatch(r"\d{12}|\d{14}", schedule) and schedule[:8] < search_date:
             flight += "Y"
         if not re.fullmatch(r"(?:KE|OZ|DL)\d+[A-Z]?", flight):
             continue
@@ -715,11 +717,18 @@ else:
         df_p['편명'] = ""
         
     df_p = df_p.drop_duplicates(['편명'])
-    # 전날 지연편(KE036Y)은 같은 번호의 승객 시트 행과 이어 표에 남기되, 당일 승객수를 중복으로 쓰지 않습니다.
-    # 전날 파일은 자정에 지워지므로 승객 칸에는 '확인필요'로 표시하고 합계에서 뺍니다.
-    df_g = df_g.assign(_편명키=df_g['편명'].astype(str).str.replace(r'(\d)Y$', r'\1', regex=True))
+    # 지연편(KE036Y·OZ324D처럼 끝에 알파벳): 엑셀에 같은 편명이 있으면 그 승객수를 씁니다.
+    # 엑셀엔 숫자 편명(OZ324)만 있으면 그 줄과 이어 표에 남기되, 승객 칸은 '확인필요'로 두고 합계에서 뺍니다.
+    pax_names = set(df_p['편명'].astype(str))
+    gate_keys, gate_checks = [], []
+    for name in df_g['편명'].astype(str):
+        base = re.sub(r'(\d)[A-Z]$', r'\1', name)
+        if base == name or name in pax_names:
+            gate_keys.append(name); gate_checks.append(False)
+        else:
+            gate_keys.append(base); gate_checks.append(True)
+    df_g = df_g.assign(_편명키=gate_keys, _확인필요=gate_checks)
     final = pd.merge(df_g, df_p.rename(columns={'편명': '_편명키'}), on='_편명키', how='inner', suffixes=('_api', '_pax'))
-    final['_확인필요'] = final['편명'] != final['_편명키']
     if '승객수' in final.columns:
         final.loc[final['_확인필요'], '승객수'] = ""
     final = final.drop(columns=['_편명키'])
