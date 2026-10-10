@@ -84,7 +84,7 @@ def load_pax_data():
 # 이 작업 스레드에서는 st.* 함수를 호출하지 않습니다.
 GATE_REFRESH_SECONDS = 180
 SCREEN_CHECK_SECONDS = 2
-GATE_ENGINE_VERSION = "central-gates-2026-10-09-v5-prev-day-y"
+GATE_ENGINE_VERSION = "central-gates-2026-10-10-v5b-letter-log"
 GATE_COLUMNS = ["편명", "시간", "게이트", "출발지", "출구", "운항상태", "공항명"]
 # 결항·회항 편은 게이트 칸에 상태를 표시하고 합계에서 제외합니다.
 def cancel_status(value):
@@ -123,6 +123,18 @@ def log_api_fields_once(source, fields, rows):
               f" · 목록에 없는 코드 {len(unknown)}개: {', '.join(unknown[:10]) or '없음'}", flush=True)
     except Exception:
         pass
+# 공항 API가 편명 끝에 알파벳(Y·D 등)을 보내는지 확인용으로 로그에만 남깁니다(화면에는 표시 안 함).
+LOGGED_LETTER_FLIGHTS = set()
+def log_letter_flights(source, search_date, found):
+    try:
+        key = (source, search_date, tuple(found))
+        if key in LOGGED_LETTER_FLIGHTS:
+            return
+        LOGGED_LETTER_FLIGHTS.add(key)
+        print(f"[공항 API 알파벳 편명] {source or '응답'} 조회일 {search_date or '-'}: "
+              f"{', '.join(found[:15]) or '없음'}", flush=True)
+    except Exception:
+        pass
 class GateFetchError(Exception):
     """화면에 표시할 수 있는 비밀키 없는 오류입니다."""
 def parse_gate_xml(xml_text, source="", search_date=""):
@@ -143,6 +155,7 @@ def parse_gate_xml(xml_text, source="", search_date=""):
         raise GateFetchError(f"공항 응답 코드: {safe_code}")
     rows = []
     sample_fields = None
+    letter_flights = []
     for item in root.findall(".//item"):
         fields = {child.tag: (child.text or "").strip() for child in item}
         def pick(*names):
@@ -151,6 +164,9 @@ def parse_gate_xml(xml_text, source="", search_date=""):
         flight = clean_flight_no(raw_flight)
         # 전날 지연편은 편명 끝에 Y를 붙입니다(공항이 Y를 붙였거나, 예정일이 조회일보다 앞선 편).
         schedule = pick("scheduleDateTime")
+        if (re.search(r"\d[A-Z]$", raw_flight.replace(" ", ""))
+                or (search_date and re.fullmatch(r"\d{12}|\d{14}", schedule) and schedule[:8] < search_date)):
+            letter_flights.append(f"{raw_flight}(예정 {schedule or '-'}·변경 {pick('estimatedDateTime') or '-'})")
         if (re.fullmatch(r"[A-Z]+\d+Y", raw_flight.replace(" ", ""))
                 or (search_date and re.fullmatch(r"\d{12}|\d{14}", schedule) and schedule[:8] < search_date)):
             flight += "Y"
@@ -184,6 +200,7 @@ def parse_gate_xml(xml_text, source="", search_date=""):
             sample_fields = fields
     if rows:
         log_api_fields_once(source, sample_fields, rows)
+    log_letter_flights(source, search_date, letter_flights)
     # 행 구성은 기존과 같게 유지합니다(운항상태 때문에 같은 편이 늘어나지 않게).
     return (pd.DataFrame(rows, columns=GATE_COLUMNS)
             .drop_duplicates(subset=["편명", "시간", "게이트", "출발지", "출구"])
