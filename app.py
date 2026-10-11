@@ -625,7 +625,9 @@ with st.sidebar:
     
     st.divider()
     
-    vis_option = st.radio("🎨 시각화 옵션", ["✈ 항공사별 색상 표시 (DL, OZ)", "⏰ 첨두시간 색상 표시 (16~18시)", "곧 들어오는 비행기 표시 (형광색)", "적용 안 함"], index=2)
+    # 주소 끝에 ?date=tomorrow 로 들어오면 '항공사별 색상 표시'로 시작합니다(그 외에는 기존대로 형광색).
+    vis_index = 0 if date_index == 1 else 2
+    vis_option = st.radio("🎨 시각화 옵션", ["✈ 항공사별 색상 표시 (DL, OZ)", "⏰ 첨두시간 색상 표시 (16~18시)", "곧 들어오는 비행기 표시 (형광색)", "적용 안 함"], index=vis_index)
     opt_airline = (vis_option == "✈ 항공사별 색상 표시 (DL, OZ)")
     opt_peak = (vis_option == "⏰ 첨두시간 색상 표시 (16~18시)")
     opt_incoming = (vis_option == "곧 들어오는 비행기 표시 (형광색)")
