@@ -813,7 +813,7 @@ else:
             @media (max-width: 900px) { .legend { font-size: 11.5px; } .legend-cell { gap: 4px; padding: 0 3px; } .legend-plane { width: 20px; } }
             @media (max-width: 740px) { .legend { font-size: 10.5px; } .legend-cell { gap: 3px; padding: 0 2px; } .legend-plane { width: 18px; } }
             </style>
-            <button class="custom-btn" onclick="window.parent.print()">📄 PDF 저장</button>
+            <button class="custom-btn" onclick="savePdf()" id="pdf-btn">📄 PDF 저장</button>
             <button class="custom-btn" onclick="takePic()" id="pic-btn">📸 전체 사진으로 저장</button>
             <div class="legend">
                 <div class="legend-cell legend-landing"><span class="legend-plane"><span class="moving"><svg viewBox="0 0 24 24" width="14" height="13" fill="currentColor"><path d="M22,12 c0,1.1 -0.9,2 -2,2 H15 l-4,5 h-2 l2.5,-5 H6 l-2.5,2.5 H2 l1.5,-3.5 C3.2,12.7 3.2,11.3 3.5,11 L2,7.5 h1.5 l2.5,2.5 h5.5 l-2.5,-5 h2 l4,5 h5 c1.1,0 2,0.9 2,2 z" /></svg></span></span>착륙·이동 중</div>
@@ -822,6 +822,63 @@ else:
             </div>
             <script>
             var parentWin = window.parent; var parentDoc = parentWin.document;
+            // 아이폰·아이패드(사파리)인지 확인합니다. 그 외 기기는 기존 동작 그대로입니다.
+            function isIOS() {
+                var ua = navigator.userAgent || '';
+                return /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            }
+            // 아이폰: 인쇄 화면 대신 표를 그림으로 찍어 A4 여러 장 PDF로 저장합니다(줄 경계에서 나눔). 그 외: 기존 인쇄.
+            function savePdf() {
+                if (!isIOS()) { window.parent.print(); return; }
+                var btn = document.getElementById('pdf-btn'); btn.innerText = "⏳ PDF 만드는 중...";
+                var fail = function() { alert("⚠ 오류"); btn.innerText = "📄 PDF 저장"; };
+                try {
+                    loadLib(parentWin.html2canvas, "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js", function() {
+                        loadLib(parentWin.jspdf, "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js", function() {
+                            doCap(parentWin, parentDoc, btn, 'pdf');
+                        }, fail);
+                    }, fail);
+                } catch(e) { btn.innerText = "📄 PDF 저장"; }
+            }
+            function loadLib(ready, src, done, fail) {
+                if (ready) { done(); return; }
+                var script = parentDoc.createElement('script'); script.src = src;
+                script.onload = done; script.onerror = fail;
+                parentDoc.head.appendChild(script);
+            }
+            function rowCuts(doc, target) {
+                var base = target.getBoundingClientRect().top;
+                var rows = Array.prototype.map.call(target.querySelectorAll('tr'), function(tr) {
+                    var r = tr.getBoundingClientRect(); return [r.top - base, r.bottom - base];
+                });
+                return rows.map(function(r) { return r[1]; }).filter(function(y) {
+                    return !rows.some(function(r) { return r[0] < y - 1 && r[1] > y + 1; });
+                });
+            }
+            function makePdf(win, doc, canvas, cuts, sc) {
+                var pdf = new win.jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+                var mL = 10, mT = 12, cw = 190, ch = 273;
+                var pxPerMm = canvas.width / cw, pageH = Math.floor(ch * pxPerMm), y = 0, first = true;
+                // 표 마지막 줄 아래 빈 공간만 남는 빈 장이 생기지 않게, 마지막 줄까지만 나눕니다.
+                var H = canvas.height;
+                if (cuts.length) { H = Math.min(H, Math.round(Math.max.apply(null, cuts) * sc) + Math.round(10 * sc)); }
+                while (y < H - 1) {
+                    var end = H;
+                    if (y + pageH < H) {
+                        end = 0;
+                        cuts.forEach(function(c) { var b = Math.round(c * sc); if (b > y + 20 && b <= y + pageH && b > end) end = b; });
+                        if (!end) end = y + pageH;
+                    }
+                    var part = doc.createElement('canvas'); part.width = canvas.width; part.height = Math.ceil(end - y);
+                    part.getContext('2d').drawImage(canvas, 0, y, canvas.width, part.height, 0, 0, canvas.width, part.height);
+                    if (!first) pdf.addPage();
+                    pdf.addImage(part.toDataURL('image/jpeg', 0.92), 'JPEG', mL, mT, cw, part.height / pxPerMm);
+                    first = false; y = end;
+                }
+                var url = win.URL.createObjectURL(pdf.output('blob'));
+                var link = doc.createElement('a'); link.download = '잡지.pdf'; link.href = url; link.click();
+                setTimeout(function() { win.URL.revokeObjectURL(url); }, 60000);
+            }
             function takePic() {
                 var btn = document.getElementById('pic-btn'); btn.innerText = "⏳ 캡처 중... 잠시만요!";
                 try {
@@ -832,7 +889,7 @@ else:
                     } else { doCap(parentWin, parentDoc, btn); }
                 } catch(e) { btn.innerText = "📸 캡처"; }
             }
-            function doCap(win, doc, btn) {
+            function doCap(win, doc, btn, mode) {
                 var target = doc.querySelector('.block-container') || doc.querySelector('.main');
                 var hides = doc.querySelectorAll('[data-testid="stSidebar"], header, iframe, .icon-container');
                 var appView = doc.querySelector('.appview-container') || doc.querySelector('[data-testid="stAppViewContainer"]');
@@ -844,13 +901,23 @@ else:
                 target.style.paddingTop = '10px'; target.style.marginTop = '0px'; target.style.width = '1100px'; target.style.maxWidth = '1100px';
                 hides.forEach(function(e){ e.dataset.old = e.style.display; e.style.display = 'none'; });
                 setTimeout(function() {
-                    win.html2canvas(target, { scale: 6, useCORS: true, backgroundColor: '#ffffff' }).then(function(canvas) {
+                    // 아이폰은 그림 크기 한도(약 1,600만 화소)를 넘지 않게 배율을 줄입니다. 그 외 기기는 기존 배율(6) 그대로입니다.
+                    var sc = 6, cuts = [];
+                    if (mode === 'pdf' || isIOS()) {
+                        var area = Math.max(1, target.scrollWidth * target.scrollHeight);
+                        sc = Math.min(mode === 'pdf' ? 2 : 6, Math.sqrt(16000000 / area));
+                    }
+                    if (mode === 'pdf') { cuts = rowCuts(doc, target); }
+                    win.html2canvas(target, { scale: sc, useCORS: true, backgroundColor: '#ffffff' }).then(function(canvas) {
+                        if (mode === 'pdf') { makePdf(win, doc, canvas, cuts, sc); return; }
                         var link = doc.createElement('a'); link.download = '잡지.png'; link.href = canvas.toDataURL('image/png'); link.click();
+                    }).catch(function() {
+                        if (mode === 'pdf') { alert("⚠ 오류"); }
                     }).finally(function() {
                         if(appView) { appView.style.overflow = oldAppOverflow; appView.style.height = oldAppHeight; }
                         if(mainView) { mainView.style.overflow = oldMainOverflow; mainView.style.height = oldMainHeight; }
                         target.style.paddingTop = ''; target.style.marginTop = ''; target.style.width = ''; target.style.maxWidth = '';
-                        hides.forEach(function(e){ e.style.display = e.dataset.old || ''; }); btn.innerText = "📸 전체 사진으로 저장";
+                        hides.forEach(function(e){ e.style.display = e.dataset.old || ''; }); btn.innerText = (mode === 'pdf') ? "📄 PDF 저장" : "📸 전체 사진으로 저장";
                     });
                 }, 800);
             }
