@@ -8,7 +8,7 @@
 |---|---|---|---|
 | live-magazine (이 저장소) | https://live-magazine-t2.streamlit.app/ | t2-security-team/Live-magazine | 실시간 홈페이지. 구글시트 승객 자료 + 인천공항 API 게이트를 합쳐 표시 |
 | t2-magazine | https://t2-pax-magazine.streamlit.app/ | t2-security-team/t2-magazine | 승객 엑셀 업로드 → 구글시트 `보안검색_데이터_공유` (`pax_data`, `file_list`)에 저장. live의 자료 공급원이라 함부로 수정 금지 |
-| t2-magazine-old | t2-magazine-old-…streamlit.app | t2-security-team/t2-magazine-old | 구글·API 없이 파일 두 개(승객/게이트)를 직접 올려 쓰는 **비상용**. 지우거나 합치지 말 것 |
+| t2-magazine-old | t2-magazine-old-…streamlit.app | t2-security-team/t2-magazine-old | 구글·API 없이 파일 두 개(승객/게이트)를 직접 올려 쓰는 **비상용**. 저장소를 지우지 말 것(2026-10-16 사용자 요청으로 기록만 하나로 합침) |
 
 - 표에 나오는 편 = 공항 API에도 있고 승객 시트에도 편명이 있는 편(inner merge). 승객수·출발지가 비어 있는 편도 편명만 있으면 나온다.
 - 공항 API: 1차 `StatusOfPassengerFlightsDeOdp/getPassengerArrivalsDeOdp`, 게이트 누락 시 2차 `statusOfAllFltDeOdp/getFltArrivalsDeOdp`. 3분마다 중앙 수집기(`CentralGateHub`, 스레드 1개)가 받아 모든 화면이 공유.
@@ -20,7 +20,7 @@
 2. 바꾸기 전에 테스트하고, 화면이 바뀌는 수정은 **미리보기(이미지)를 보여주고 "좋아/올려줘"를 받은 뒤** 올린다.
 3. 올린 뒤에는 실제 사이트를 열어 게이트 수신·합계·오류 여부를 확인한다. 문제가 보이면 사용자가 요청하는 즉시 **이전 버전으로 되돌린다**(되돌리기 커밋).
 4. 코드 업로드 순간 열린 화면들이 동시에 다시 그려진다. 큰 수정은 바쁜 시간(아침·저녁 도착 몰리는 때)을 피한다.
-5. GitHub 수정 기록(커밋)은 되돌리기용이므로 지우지 않는다.
+5. GitHub 수정 기록(커밋)은 되돌리기용이므로 지우지 않는다. 단, 2026-10-16 사용자 요청으로 기록을 한 번 정리했다: 이 저장소는 최근 5개만 남김, t2-magazine·t2-magazine-old는 하나로 합침(코드는 그대로). 그 이전 버전은 사용자 USB 백업에만 있다. **이후 기록은 지우지 않는다.**
 
 ## 3. 현재 화면 규칙 (사용자와 확정한 것)
 
