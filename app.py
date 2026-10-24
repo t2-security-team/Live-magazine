@@ -719,18 +719,16 @@ else:
         df_p['편명'] = ""
         
     df_p = df_p.drop_duplicates(['편명'])
-    # 지연편(KE036Y·OZ324D·DL173A처럼 끝에 알파벳): 엑셀에 같은 편명이 있으면 그 승객수를 씁니다.
-    # 엑셀엔 숫자 편명(DL173)만 있을 때: 공항 자료에 숫자 편(DL173)이 따로 없으면 같은 비행기로 보고 그 승객수를 씁니다.
-    # 공항 자료에 숫자 편과 알파벳 편이 둘 다 있으면 헷갈리므로 승객 칸은 '확인필요'로 두고 합계에서 뺍니다.
+    # 지연편(KE036Y·OZ324D처럼 끝에 알파벳): 엑셀에 같은 편명이 있으면 그 승객수를 씁니다.
+    # 엑셀엔 숫자 편명(OZ324)만 있으면 그 줄과 이어 표에 남기되, 승객 칸은 '확인필요'로 두고 합계에서 뺍니다.
     pax_names = set(df_p['편명'].astype(str))
-    gate_names = set(df_g['편명'].astype(str))
     gate_keys, gate_checks = [], []
     for name in df_g['편명'].astype(str):
         base = re.sub(r'(\d)[A-Z]$', r'\1', name)
         if base == name or name in pax_names:
             gate_keys.append(name); gate_checks.append(False)
         else:
-            gate_keys.append(base); gate_checks.append(base in gate_names)
+            gate_keys.append(base); gate_checks.append(True)
     df_g = df_g.assign(_편명키=gate_keys, _확인필요=gate_checks)
     final = pd.merge(df_g, df_p.rename(columns={'편명': '_편명키'}), on='_편명키', how='inner', suffixes=('_api', '_pax'))
     if '승객수' in final.columns:
