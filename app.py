@@ -441,7 +441,7 @@ st.markdown("""
     .merged-table th { background-color: #f8f9fa !important; border: 1px solid #dee2e6 !important; padding: 4px; font-weight: bold; }
     .merged-table td { border: 1px solid #dee2e6 !important; padding: 3px; vertical-align: middle; font-weight: bold !important; }
     .sum-cell { font-weight: bold; color: #1E3A8A; }
-    .merged-table td.group-top { border-top: 3px solid #1E3A8A !important; }
+    .merged-table td.group-top { border-top: 2px solid #1E3A8A !important; }
     @media screen {
         .merged-table tr.flt-hit td:not(.sum-cell) { box-shadow: inset 0 3px 0 #E11D48, inset 0 -3px 0 #E11D48; }
         .merged-table tr.flt-hit:not(.flt-keepbg) td:not(.sum-cell) { background-color: #FFE4E6 !important; }
