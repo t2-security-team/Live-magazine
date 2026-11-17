@@ -578,7 +578,9 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
                 if current_h in [16, 17, 18]: row_style_css = ["background-color: #F4FAFD;", "background-color: #FFFDF0;", "background-color: #FFF5F8;"][current_h-16] 
             else: row_style_css = "background-color: #ffffff;"
                 
-        td_style = f' style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}"'
+        # 시간대(합계 구간)가 바뀌는 첫 줄 위에 굵은 선을 그어 구간 경계를 표시합니다(표의 첫 구간은 제외).
+        group_top_css = " border-top: 3px solid #1E3A8A !important;" if (current_h not in processed_hours and processed_hours) else ""
+        td_style = f' style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}{group_top_css}"'
         
         시간_val, 편명_val, 출발지_val, 게이트_val = html.escape(str(row["시간"])), html.escape(str(row["편명"])), html.escape(str(row.get("출발지", ""))), html.escape(str(row["게이트"]))
         pax_text = str(row.get("p_display", ""))
@@ -596,7 +598,7 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
         html_parts.append(f'<tr><td{td_style}>{시간_val}</td><td{td_style}>{편명_val}</td><td{td_style}>{출발지_val}</td><td{td_style}>{게이트_val}</td><td{td_style}>{pax_content}</td>')
         
         if current_h not in processed_hours:
-            html_parts.append(f'<td rowspan="{hour_counts[current_h]}" class="sum-cell" style="background-color: #ffffff !important; font-size: {font_size + 1}px !important; font-weight: bold !important;"><div style="position: relative; z-index: 10;">{hour_sums[current_h]:,}</div></td>')
+            html_parts.append(f'<td rowspan="{hour_counts[current_h]}" class="sum-cell" style="background-color: #ffffff !important; font-size: {font_size + 1}px !important; font-weight: bold !important;{group_top_css}"><div style="position: relative; z-index: 10;">{hour_sums[current_h]:,}</div></td>')
             processed_hours.add(current_h)
         html_parts.append('</tr>')
         
