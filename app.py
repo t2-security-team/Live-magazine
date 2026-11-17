@@ -442,6 +442,12 @@ st.markdown("""
     .merged-table td { border: 1px solid #dee2e6 !important; padding: 3px; vertical-align: middle; font-weight: bold !important; }
     .sum-cell { font-weight: bold; color: #1E3A8A; }
     .merged-table td.group-top { border-top: 3px solid #1E3A8A !important; }
+    @media screen {
+        .merged-table tr.flt-hit td:not(.sum-cell) { box-shadow: inset 0 3px 0 #E11D48, inset 0 -3px 0 #E11D48; }
+        .merged-table tr.flt-hit:not(.flt-keepbg) td:not(.sum-cell) { background-color: #FFE4E6 !important; }
+        .merged-table tr.flt-hit td:first-child { box-shadow: inset 3px 0 0 #E11D48, inset 0 3px 0 #E11D48, inset 0 -3px 0 #E11D48; }
+        .merged-table tr.flt-hit td:nth-child(5) { box-shadow: inset -3px 0 0 #E11D48, inset 0 3px 0 #E11D48, inset 0 -3px 0 #E11D48; }
+    }
     
     .total-banner { background-color: #f0f7ff !important; padding: 4px 8px !important; border-radius: 8px; text-align: center; border: 1px solid #3b82f6; margin-bottom: 2px; margin-top: 2px; }
     .carrier-banner { background-color: #ffffff !important; padding: 4px; border-radius: 8px; text-align: center; border: 1px solid #3b82f6; margin-bottom: 4px; display: flex; justify-content: center; gap: 20px; }
@@ -805,7 +811,7 @@ else:
             body { margin: 0; padding: 0; overflow: hidden; display: flex; gap: 10px; }
             .custom-btn { background-color: white; border: 1px solid #dcdcdc; color: #31333f; padding: 6px 15px; font-size: 14px; border-radius: 6px; cursor: pointer; font-family: sans-serif; box-shadow: 0px 1px 3px rgba(0,0,0,0.1); }
             .custom-btn:hover { border-color: #ff4b4b; color: #ff4b4b; }
-            .legend { flex: 1; max-width: 480px; min-width: 0; height: 34px; align-self: center; display: grid; grid-template-columns: repeat(3, 1fr); margin-left: 6px; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; font-family: sans-serif; font-size: 13px; font-weight: bold; color: #31333f; }
+            .legend { flex: 1; max-width: 480px; min-width: 0; height: 34px; align-self: center; display: grid; grid-template-columns: repeat(3, 1fr); margin-left: auto; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; font-family: sans-serif; font-size: 13px; font-weight: bold; color: #31333f; }
             .legend-cell { display: flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; overflow: hidden; border-left: 1px solid #dee2e6; padding: 0 6px; }
             .legend-cell:first-child { border-left: none; }
             .legend-landing { background-color: #FFFF00; }
@@ -817,9 +823,21 @@ else:
             .legend-strike { text-decoration: line-through; color: #6B7280; }
             @media (max-width: 900px) { .legend { font-size: 11.5px; } .legend-cell { gap: 4px; padding: 0 3px; } .legend-plane { width: 20px; } }
             @media (max-width: 740px) { .legend { font-size: 10.5px; } .legend-cell { gap: 3px; padding: 0 2px; } .legend-plane { width: 18px; } }
+            .flt-search { align-self: center; display: flex; align-items: center; gap: 6px; flex: none; margin-left: 4px; font-family: sans-serif; }
+            .flt-search label { font-size: 14px; font-weight: bold; color: #31333f; white-space: nowrap; }
+            .flt-box { position: relative; }
+            .flt-box input { width: 118px; height: 34px; box-sizing: border-box; border: 1px solid #dcdcdc; border-radius: 6px; padding: 0 26px 0 9px; font-size: 14px; font-family: sans-serif; color: #31333f; outline: none; box-shadow: 0px 1px 3px rgba(0,0,0,0.05); }
+            .flt-box input::placeholder { color: #b0b4bb; }
+            .flt-box input:focus { border-color: #2563EB; }
+            #flt-x { position: absolute; right: 3px; top: 50%; transform: translateY(-50%); width: 22px; height: 22px; border: none; background: transparent; color: #9CA3AF; font-size: 13px; line-height: 1; cursor: pointer; padding: 0; display: none; }
+            #flt-x:hover { color: #E11D48; }
+            #flt-n { font-size: 12px; color: #6B7280; white-space: nowrap; min-width: 26px; }
+            @media (max-width: 800px) { body { flex-wrap: wrap; row-gap: 6px; align-content: flex-start; } .legend { flex: 1 1 100%; max-width: none; margin-left: 0; } .flt-search { margin-left: 0; } .flt-box input { font-size: 16px; } }
+            @media (max-width: 640px) { .legend { display: none; } }
             </style>
             <button class="custom-btn" onclick="savePdf()" id="pdf-btn">📄 PDF 저장</button>
             <button class="custom-btn" onclick="takePic()" id="pic-btn">📸 전체 사진으로 저장</button>
+            <div class="flt-search"><label for="flt-q">편명검색</label><div class="flt-box"><input id="flt-q" type="text" placeholder="예) 숫자만" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="10"><button id="flt-x" type="button" title="지우기" aria-label="검색어 지우기">✕</button></div><span id="flt-n"></span></div>
             <div class="legend">
                 <div class="legend-cell legend-landing"><span class="legend-plane"><span class="moving"><svg viewBox="0 0 24 24" width="14" height="13" fill="currentColor"><path d="M22,12 c0,1.1 -0.9,2 -2,2 H15 l-4,5 h-2 l2.5,-5 H6 l-2.5,2.5 H2 l1.5,-3.5 C3.2,12.7 3.2,11.3 3.5,11 L2,7.5 h1.5 l2.5,2.5 h5.5 l-2.5,-5 h2 l4,5 h5 c1.1,0 2,0.9 2,2 z" /></svg></span></span>착륙·이동 중</div>
                 <div class="legend-cell"><span class="legend-plane"><span><svg viewBox="0 0 24 24" width="14" height="13" fill="currentColor"><path d="M22,12 c0,1.1 -0.9,2 -2,2 H15 l-4,5 h-2 l2.5,-5 H6 l-2.5,2.5 H2 l1.5,-3.5 C3.2,12.7 3.2,11.3 3.5,11 L2,7.5 h1.5 l2.5,2.5 h5.5 l-2.5,-5 h2 l4,5 h5 c1.1,0 2,0.9 2,2 z" /></svg></span></span>게이트 도착</div>
@@ -905,6 +923,7 @@ else:
                 if(mainView) { mainView.style.overflow = 'visible'; mainView.style.height = 'auto'; }
                 target.style.paddingTop = '10px'; target.style.marginTop = '0px'; target.style.width = '1100px'; target.style.maxWidth = '1100px';
                 hides.forEach(function(e){ e.dataset.old = e.style.display; e.style.display = 'none'; });
+                fltPauseUntil = Date.now() + 30000; fltApply();
                 setTimeout(function() {
                     // 아이폰은 그림 크기 한도(약 1,600만 화소)를 넘지 않게 배율을 줄입니다. 그 외 기기는 기존 배율(6) 그대로입니다.
                     var sc = 6, cuts = [];
@@ -923,9 +942,66 @@ else:
                         if(mainView) { mainView.style.overflow = oldMainOverflow; mainView.style.height = oldMainHeight; }
                         target.style.paddingTop = ''; target.style.marginTop = ''; target.style.width = ''; target.style.maxWidth = '';
                         hides.forEach(function(e){ e.style.display = e.dataset.old || ''; }); btn.innerText = (mode === 'pdf') ? "📄 PDF 저장" : "📸 전체 사진으로 저장";
+                        fltPauseUntil = 0; fltApply();
                     });
                 }, 800);
             }
+            // 편명검색: 이 브라우저 화면에서만 해당 줄에 빨간 테두리를 칩니다(자료·합계·다른 사람 화면에는 영향 없음).
+            // 검색어는 화면이 자동으로 다시 그려져도 남고, 칸을 비우거나 ✕를 누르면 사라집니다.
+            var FLT_KEY = 'fltSearchQ', fltPauseUntil = 0, fltTimer = null, fltOrigH = null, fltGrown = false;
+            function fltQuery() { var el = document.getElementById('flt-q'); return el ? el.value.replace(/ /g, '').trim().toUpperCase() : ''; }
+            function fltApply() {
+                var first = null;
+                try {
+                    var paused = Date.now() < fltPauseUntil, q = fltQuery(), n = 0;
+                    Array.prototype.forEach.call(parentDoc.querySelectorAll('table.merged-table tbody tr'), function(tr) {
+                        var c = tr.cells && tr.cells[1];
+                        var hit = !!(q && c && c.textContent.replace(/ /g, '').trim().toUpperCase().indexOf(q) !== -1);
+                        if (hit) { n++; if (!first) first = tr; }
+                        var show = hit && !paused;
+                        if (tr.classList.contains('flt-hit') !== show) { tr.classList.toggle('flt-hit', show); }
+                        // 형광(착륙·이동 중) 줄은 노란색을 그대로 두고 테두리만 칩니다.
+                        var keep = show && tr.cells[0].style.backgroundColor === 'rgb(255, 255, 0)';
+                        if (tr.classList.contains('flt-keepbg') !== keep) { tr.classList.toggle('flt-keepbg', keep); }
+                    });
+                    var cnt = document.getElementById('flt-n'), x = document.getElementById('flt-x');
+                    if (cnt) { var t = q ? (n + '건') : ''; if (cnt.textContent !== t) cnt.textContent = t; }
+                    if (x) { x.style.display = q ? 'block' : 'none'; }
+                } catch(e) {}
+                return first;
+            }
+            function fltGo() { var f = fltApply(); try { if (f && f.scrollIntoView) f.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch(e) {} }
+            // 좁은 화면에서는 검색 칸·안내가 아랫줄로 내려가므로 이 줄의 높이를 맞춰 줍니다(넓은 화면은 기존 45px 그대로).
+            function fltFit() {
+                try {
+                    var fe = window.frameElement; if (!fe) return;
+                    if (fltOrigH === null) fltOrigH = fe.style.height || '';
+                    var need = Math.ceil(document.body.getBoundingClientRect().height) + 2;
+                    // Streamlit이 이 줄을 감싼 칸(45px 고정)도 같이 늘려야 아래 내용이 밀려 내려갑니다.
+                    var box = fe.parentElement;
+                    if (need > 50) {
+                        var h = need + 'px';
+                        if (fe.style.height !== h) fe.style.height = h;
+                        if (box && box.style.height !== h) { box.style.height = h; box.style.flexBasis = h; }
+                        fltGrown = true;
+                    }
+                    else if (fltGrown) { fe.style.height = fltOrigH; if (box) { box.style.height = ''; box.style.flexBasis = ''; } fltGrown = false; }
+                } catch(e) {}
+            }
+            (function() {
+                var el = document.getElementById('flt-q'), x = document.getElementById('flt-x'); if (!el) return;
+                try { el.value = parentWin.sessionStorage.getItem(FLT_KEY) || ''; } catch(e) {}
+                var save = function() { try { var v = el.value.trim(); if (v) parentWin.sessionStorage.setItem(FLT_KEY, v); else parentWin.sessionStorage.removeItem(FLT_KEY); } catch(e) {} };
+                // 화면이 다시 그려지며 이 줄이 새로 만들어져도, 방금까지 입력 중이었으면 커서를 돌려놓습니다.
+                var typing = function() { try { parentWin.sessionStorage.setItem(FLT_KEY + 'At', String(Date.now())); } catch(e) {} };
+                try { if (Date.now() - parseInt(parentWin.sessionStorage.getItem(FLT_KEY + 'At') || '0') < 5000) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } } catch(e) {}
+                el.addEventListener('input', function() { save(); typing(); fltApply(); clearTimeout(fltTimer); fltTimer = setTimeout(fltGo, 600); });
+                el.addEventListener('keydown', function(ev) { if (ev.key === 'Enter') { clearTimeout(fltTimer); fltGo(); el.blur(); } });
+                if (x) x.addEventListener('click', function() { el.value = ''; save(); clearTimeout(fltTimer); fltApply(); el.focus(); });
+                fltApply(); fltFit();
+                setInterval(function() { fltApply(); fltFit(); }, 700);
+                window.addEventListener('resize', fltFit);
+            })();
             function doScrollLogic() {
                 var scrollContainer = parentDoc.querySelector('.main') || parentWin;
                 var savedScroll = parentWin.sessionStorage.getItem('stScrollPos');
