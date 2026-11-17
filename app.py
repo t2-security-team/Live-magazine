@@ -441,6 +441,7 @@ st.markdown("""
     .merged-table th { background-color: #f8f9fa !important; border: 1px solid #dee2e6 !important; padding: 4px; font-weight: bold; }
     .merged-table td { border: 1px solid #dee2e6 !important; padding: 3px; vertical-align: middle; font-weight: bold !important; }
     .sum-cell { font-weight: bold; color: #1E3A8A; }
+    .merged-table td.group-top { border-top: 3px solid #1E3A8A !important; }
     
     .total-banner { background-color: #f0f7ff !important; padding: 4px 8px !important; border-radius: 8px; text-align: center; border: 1px solid #3b82f6; margin-bottom: 2px; margin-top: 2px; }
     .carrier-banner { background-color: #ffffff !important; padding: 4px; border-radius: 8px; text-align: center; border: 1px solid #3b82f6; margin-bottom: 4px; display: flex; justify-content: center; gap: 20px; }
@@ -579,8 +580,10 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
             else: row_style_css = "background-color: #ffffff;"
                 
         # 시간대(합계 구간)가 바뀌는 첫 줄 위에 굵은 선을 그어 구간 경계를 표시합니다(표의 첫 구간은 제외).
-        group_top_css = " border-top: 3px solid #1E3A8A !important;" if (current_h not in processed_hours and processed_hours) else ""
-        td_style = f' style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}{group_top_css}"'
+        # (칸에 직접 쓴 !important 스타일은 Streamlit이 지우므로, 줄 표시는 클래스 group-top + 위쪽 스타일 블록으로 그립니다.)
+        is_group_top = bool(current_h not in processed_hours and processed_hours)
+        td_class = ' class="group-top"' if is_group_top else ""
+        td_style = f'{td_class} style="{row_style_css} font-size: {font_size}px !important; font-weight: bold !important;{text_style}"'
         
         시간_val, 편명_val, 출발지_val, 게이트_val = html.escape(str(row["시간"])), html.escape(str(row["편명"])), html.escape(str(row.get("출발지", ""))), html.escape(str(row["게이트"]))
         pax_text = str(row.get("p_display", ""))
@@ -598,7 +601,7 @@ def generate_table_html(df, title, count, color, opt_airline, opt_peak, opt_inco
         html_parts.append(f'<tr><td{td_style}>{시간_val}</td><td{td_style}>{편명_val}</td><td{td_style}>{출발지_val}</td><td{td_style}>{게이트_val}</td><td{td_style}>{pax_content}</td>')
         
         if current_h not in processed_hours:
-            html_parts.append(f'<td rowspan="{hour_counts[current_h]}" class="sum-cell" style="background-color: #ffffff !important; font-size: {font_size + 1}px !important; font-weight: bold !important;{group_top_css}"><div style="position: relative; z-index: 10;">{hour_sums[current_h]:,}</div></td>')
+            html_parts.append(f'<td rowspan="{hour_counts[current_h]}" class="sum-cell{' group-top' if is_group_top else ''}" style="background-color: #ffffff !important; font-size: {font_size + 1}px !important; font-weight: bold !important;"><div style="position: relative; z-index: 10;">{hour_sums[current_h]:,}</div></td>')
             processed_hours.add(current_h)
         html_parts.append('</tr>')
         
