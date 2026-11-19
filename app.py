@@ -824,7 +824,7 @@ else:
             @media (max-width: 900px) { .legend { font-size: 11.5px; } .legend-cell { gap: 4px; padding: 0 3px; } .legend-plane { width: 20px; } }
             @media (max-width: 740px) { .legend { font-size: 10.5px; } .legend-cell { gap: 3px; padding: 0 2px; } .legend-plane { width: 18px; } }
             .flt-search { align-self: center; display: flex; align-items: center; gap: 6px; flex: none; margin-left: 4px; font-family: sans-serif; }
-            .flt-search label { font-size: 15px; font-weight: bold; color: #31333f; white-space: nowrap; }
+            .flt-search label { font-size: 16px; font-weight: bold; color: #31333f; white-space: nowrap; }
             .flt-box { position: relative; }
             .flt-box input { width: 118px; height: 34px; box-sizing: border-box; border: 1px solid #dcdcdc; border-radius: 6px; padding: 0 26px 0 9px; font-size: 14px; font-family: sans-serif; color: #31333f; outline: none; box-shadow: 0px 1px 3px rgba(0,0,0,0.05); }
             .flt-box input::placeholder { color: #b0b4bb; }
