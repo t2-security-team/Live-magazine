@@ -82,7 +82,7 @@ def load_pax_data():
     return pd.DataFrame()
 # 서버 전체가 함께 사용하는 게이트 수집기입니다.
 # 이 작업 스레드에서는 st.* 함수를 호출하지 않습니다.
-GATE_REFRESH_SECONDS = 180
+GATE_REFRESH_SECONDS = 120
 SCREEN_CHECK_SECONDS = 2
 GATE_ENGINE_VERSION = "central-gates-2026-10-10-v6-letter-pick"
 GATE_COLUMNS = ["편명", "시간", "게이트", "출발지", "출구", "운항상태", "공항명"]

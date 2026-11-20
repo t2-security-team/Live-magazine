@@ -11,7 +11,7 @@
 | t2-magazine-old | t2-magazine-old-…streamlit.app | t2-security-team/t2-magazine-old | 구글·API 없이 파일 두 개(승객/게이트)를 직접 올려 쓰는 **비상용**. 저장소를 지우지 말 것(2026-10-16 사용자 요청으로 기록만 하나로 합침) |
 
 - 표에 나오는 편 = 공항 API에도 있고 승객 시트에도 편명이 있는 편(inner merge). 승객수·출발지가 비어 있는 편도 편명만 있으면 나온다.
-- 공항 API: 1차 `StatusOfPassengerFlightsDeOdp/getPassengerArrivalsDeOdp`, 게이트 누락 시 2차 `statusOfAllFltDeOdp/getFltArrivalsDeOdp`. 3분마다 중앙 수집기(`CentralGateHub`, 스레드 1개)가 받아 모든 화면이 공유.
+- 공항 API: 1차 `StatusOfPassengerFlightsDeOdp/getPassengerArrivalsDeOdp`, 게이트 누락 시 2차 `statusOfAllFltDeOdp/getFltArrivalsDeOdp`. 2분마다(`GATE_REFRESH_SECONDS`, 2026-11-20 3분→2분. 두 API 모두 운영계정 일 10만 트래픽이라 여유 있음. 1차=여객기 운항 현황 상세 조회 서비스, 2차=항공기 운항 현황 상세 조회. **활용기간 만료 예정 2028-07-22(2차)·2028-07-23(1차)** — 만료 전 공공데이터포털에서 연장하지 않으면 게이트 수신이 멈춘다) 중앙 수집기(`CentralGateHub`, 스레드 1개)가 받아 모든 화면이 공유.
 - 연결키·구글 인증은 Streamlit secrets에만 있다(`api.service_key`, `gcp`). 코드나 이 문서에 절대 적지 말 것.
 
 ## 2. 가장 중요한 원칙
